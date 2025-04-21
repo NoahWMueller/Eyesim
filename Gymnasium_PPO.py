@@ -39,7 +39,7 @@ class EyeSimEnv(gym.Env):
     
     def __init__(self):
         super(EyeSimEnv, self).__init__()
-        self.action_space = spaces.Box(low=-2.0, high=2.0, shape=(1,)) # Float action space for robot speed, range from -2 to 2
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,)) # Float action space for robot speed, range from -2 to 2
         self.observation_space = spaces.Box(low=0, high=255, shape=(DESIRED_CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
 
     def reset(self, seed=None, options=None):
