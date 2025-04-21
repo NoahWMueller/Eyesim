@@ -112,8 +112,11 @@ def eyesim_set_robot_speed(direction):
 
 # Function to get the image from the camera and process it
 def eyesim_get_observation(): 
-    img = CAMGet() # Get image from camera
-    processed_img = image_processing(img) # Process image
+    # Get image from camera
+    img = CAMGet() 
+
+    # Process image
+    processed_img = image_processing(img) 
 
     # Optional: Display the processed image on the LCD screen
     display_img = processed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
@@ -309,10 +312,9 @@ def find_center():
     
     # Process image
     procesesed_img = image_processing(img)
-    display_img = procesesed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
 
     # convert to HSI and find index of red color peak
-    [h, s, i] = IPCol2HSI(display_img)  
+    [h, s, i] = IPCol2HSI(procesesed_img)  
     index = colour_search(h, s, i)
 
     return index
@@ -352,6 +354,7 @@ def colour_search(h, s, i):
 def main():
     # Initialize the camera with QQVGA resolution (160x120)
     CAMInit(QQVGA) 
+    LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
 
     while True:
         LCDMenu("TRAIN", "LOAD", "TEST", "STOP")
