@@ -235,7 +235,7 @@ def train():
         os.makedirs(logdir)
 
     # Define the PPO model with the specified parameters
-    model = A2C("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps, batch_size=batch_size, n_epochs=n_epochs, gamma=gamma, ent_coef=ent_coef, clip_range=clip_range)
+    model = A2C("CnnPolicy", env=env, verbose=1, learning_rate=learning_rate, n_steps=n_steps, tensorboard_log=logdir)
 
     # Train the model for 10 iterations, each with 10,000 timesteps
     for i in range(1,10):
@@ -301,7 +301,7 @@ def image_processing(image):
 def find_center(): 
     # Get image data from the camera
     img = CAMGet()
-    
+
     # convert to HSI and find index of red color peak
     [h, s, i] = IPCol2HSI(img)  
     index = colour_search(h, s, i)
