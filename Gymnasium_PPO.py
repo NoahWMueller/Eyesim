@@ -13,6 +13,8 @@ import gymnasium as gym
 from random import randint
 from gymnasium import spaces
 from stable_baselines3 import PPO
+from stable_baselines3 import A2C
+from stable_baselines3 import DQN
 from stable_baselines3.common.env_checker import check_env
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
@@ -23,7 +25,7 @@ CAMHEIGHT = 120
 DESIRED_CAMHEIGHT = 60
 
 # Algorithm used for training
-algorithm = "PPO" 
+algorithm = "A2C" 
 
 # Current version of the code for saving models and logs
 version = 1.2 
@@ -83,7 +85,7 @@ class EyeSimEnv(gym.Env):
             reward = -10.0
         elif after_position < init_position and after_position != -1 or init_position == -1 and after_position != -1: # if the robot is moving towards the red peak
             reward = 1.0 * 5*(1-scaling_factor)
-        elif after_position == 0 and after_position != -1: # if the robot is at the red peak
+        elif after_position == 0: # if the robot is at the red peak
             reward = 10.0
         elif after_position > init_position and init_position != -1: # if the robot is moving away from the red peak
             reward = -1.0 * 5 * scaling_factor
@@ -232,12 +234,8 @@ def train():
     if not os.path.exists(logdir):
         os.makedirs(logdir)
 
-    # Reset the environment and check if it is valid
-    env.reset()
-    check_env(env)
-
     # Define the PPO model with the specified parameters
-    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps, batch_size=batch_size, n_epochs=n_epochs, gamma=gamma, ent_coef=ent_coef, clip_range=clip_range)
+    model = A2C("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps, batch_size=batch_size, n_epochs=n_epochs, gamma=gamma, ent_coef=ent_coef, clip_range=clip_range)
 
     # Train the model for 10 iterations, each with 10,000 timesteps
     for i in range(1,10):
@@ -248,14 +246,11 @@ def train():
 
 # Function to load a pre-trained model and test it
 def load(): 
-    # Reset the environment and check if it is valid
-    env.reset()
-    check_env(env)
 
     # Load the pre-trained model
-    trained_model = 9
+    trained_model = 6
     model_path = f"{models_dir}/{trained_model}.zip"
-    model = PPO.load(model_path,env=env)
+    model = A2C.load(model_path,env=env)
 
     # Test the loaded model by taking actions based on the model's predictions
     episodes = 10
@@ -271,19 +266,16 @@ def load():
 
 # Function to load a pre-trained model and continue training it
 def load_train(): 
-    # Reset the environment and check if it is valid
-    env.reset()
-    check_env(env)
-    
+
     # Load the pre-trained model
     trained_model = 9
     model_path = f"{models_dir}/{trained_model}.zip"
-    model = PPO.load("CNNPolicy", model_path, env=env, verbose = 1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps, batch_size=batch_size, n_epochs=n_epochs, gamma=gamma, ent_coef=ent_coef, clip_range=clip_range)
+    model = A2C.load(model_path, env)
     
     iterations = 10
     # Continue training the model
     for i in range(trained_model + 1, trained_model + 1 + iterations):
-        model.learn(total_timesteps=10000, progress_bar = True, reset_num_timesteps=False, tb_log_name="PPO")
+        model.learn(total_timesteps=10000, progress_bar = True, reset_num_timesteps=False)
         model.save(f"{models_dir}/{i}")
         
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
