@@ -310,11 +310,8 @@ def find_center():
     # Get image data from the camera
     img = CAMGet()
     
-    # Process image
-    procesesed_img = image_processing(img)
-
     # convert to HSI and find index of red color peak
-    [h, s, i] = IPCol2HSI(procesesed_img)  
+    [h, s, i] = IPCol2HSI(img)  
     index = colour_search(h, s, i)
 
     return index
