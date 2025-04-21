@@ -25,14 +25,14 @@ CAMHEIGHT = 120
 DESIRED_CAMHEIGHT = 60
 
 # Algorithm used for training
-algorithm = "A2C" 
+algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
-version = 1.2 
+version = 1.3
 
 # Directory paths for saving models and logs
-models_dir = f"models/{algorithm}/{version}"
-logdir = f"logs/{algorithm}/{version}"
+models_dir = f"models/{version}"
+logdir = f"logs/{version}"
 
 # ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
@@ -171,7 +171,7 @@ def eyesim_reset():
 
     # Add a random angle variation to the robot's angle in range 
     angle_variation = 0
-    while angle_variation < 5 and angle_variation > -5: # Ensure the angle variation is not too small
+    while -5 < angle_variation < 5: # Ensure the angle variation is not too small
         angle_variation = randint(-30,30)
     
     # Adjustment for simulation functions
@@ -235,11 +235,11 @@ def train():
         os.makedirs(logdir)
 
     # Define the PPO model with the specified parameters
-    model = A2C("CnnPolicy", env=env, verbose=1, learning_rate=learning_rate, n_steps=n_steps, tensorboard_log=logdir)
+    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, n_steps=64, )
 
     # Train the model for 10 iterations, each with 10,000 timesteps
     for i in range(1,10):
-        model.learn(total_timesteps=10000, progress_bar = True, reset_num_timesteps=False)
+        model.learn(total_timesteps=10000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
         model.save(f"{models_dir}/{i}")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
@@ -250,7 +250,7 @@ def load():
     # Load the pre-trained model
     trained_model = 6
     model_path = f"{models_dir}/{trained_model}.zip"
-    model = A2C.load(model_path,env=env)
+    model = PPO.load(model_path,env=env)
 
     # Test the loaded model by taking actions based on the model's predictions
     episodes = 10
@@ -270,12 +270,12 @@ def load_train():
     # Load the pre-trained model
     trained_model = 9
     model_path = f"{models_dir}/{trained_model}.zip"
-    model = A2C.load(model_path, env)
+    model = PPO.load(model_path, env)
     
     iterations = 10
     # Continue training the model
     for i in range(trained_model + 1, trained_model + 1 + iterations):
-        model.learn(total_timesteps=10000, progress_bar = True, reset_num_timesteps=False)
+        model.learn(total_timesteps=10000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
         model.save(f"{models_dir}/{i}")
         
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
@@ -332,7 +332,7 @@ def colour_search(h, s, i):
         histogram[x] = count
         
         # find the highest count and filter out any small patches of red
-        if count > max and count > 5:
+        if count > max and count > 2:
             max = count
             index = x
 

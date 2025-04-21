@@ -65,43 +65,81 @@ def get_distance(x1,y1,x2,y2):
 
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
 
-# converts image to new size
+# # converts image to new size
+# def image_processing(image):
+#     decoded_array = np.asarray(image, dtype=np.uint8)
+#     image_reshaped = decoded_array.reshape((CAMHEIGHT, CAMWIDTH, 3))
+
+#     # image cropping to desired height
+#     middle = CAMHEIGHT//2
+#     lower = middle - DESIRED_CAMHEIGHT//2
+#     upper = middle + DESIRED_CAMHEIGHT//2
+
+#     image_reshaped = image_reshaped[lower:upper, :, :]
+    
+#     cropped_image = cv2.resize(image_reshaped, (CAMWIDTH, DESIRED_CAMHEIGHT))
+#     return cropped_image
+
+# # function to find and draw center of red object in the image
+# def find_center():
+#     # Get image data from the camera
+#     display_img = CAMGet()
+    
+#     # process image
+#     # procesesed_img = image_processing(img)
+#     # display_img = procesesed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
+#     LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
+#     LCDImage(display_img)
+
+#     # draw centered line
+#     LCDLine(int(0.5*CAMWIDTH), 0, int(0.5*CAMWIDTH), DESIRED_CAMHEIGHT-1, BLUE)
+
+#     # convert to HSI and find red
+#     [h, s, i] = IPCol2HSI(display_img)  # Convert the image to HSI format
+    
+#     index = colour_search(h, s, i)
+
+#     # draw line where red is maximum
+#     if index != -1:
+#         LCDLine(index, 0, index, DESIRED_CAMHEIGHT-1, GREEN)
+
+#     return index
+
+# IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
+
+# Function to process the image from the camera
 def image_processing(image):
+    # Convert the image to a numpy array and shape it to the set dimensions
     decoded_array = np.asarray(image, dtype=np.uint8)
     image_reshaped = decoded_array.reshape((CAMHEIGHT, CAMWIDTH, 3))
 
-    # image cropping to desired height
+    # Image cropping to desired height
     middle = CAMHEIGHT//2
     lower = middle - DESIRED_CAMHEIGHT//2
     upper = middle + DESIRED_CAMHEIGHT//2
-
     image_reshaped = image_reshaped[lower:upper, :, :]
-    
+
+    # Image resizing to desired width and height
+
     cropped_image = cv2.resize(image_reshaped, (CAMWIDTH, DESIRED_CAMHEIGHT))
     return cropped_image
 
-# function to find and draw center of red object in the image
-def find_center():
+# Function to find the center of the red peak in the image
+def find_center(): 
     # Get image data from the camera
-    display_img = CAMGet()
-    
+    img = CAMGet()
+
+    # convert to HSI and find index of red color peak
+    [h, s, i] = IPCol2HSI(img)  
+    index = colour_search(h, s, i)
     # process image
-    # procesesed_img = image_processing(img)
-    # display_img = procesesed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
+    procesesed_img = image_processing(img)
+    display_img = procesesed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
     LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
     LCDImage(display_img)
 
-    # draw centered line
-    LCDLine(int(0.5*CAMWIDTH), 0, int(0.5*CAMWIDTH), DESIRED_CAMHEIGHT-1, BLUE)
-
-    # convert to HSI and find red
-    [h, s, i] = IPCol2HSI(display_img)  # Convert the image to HSI format
-    
-    index = colour_search(h, s, i)
-
     # draw line where red is maximum
-    if index != -1:
-        LCDLine(index, 0, index, DESIRED_CAMHEIGHT-1, GREEN)
+    LCDLine(index, 0, index, DESIRED_CAMHEIGHT-1, GREEN)
 
     return index
 
@@ -127,7 +165,7 @@ def colour_search(h, s, i):
         histogram[x] = count
         
         # find the highest count and filter out any small patches of red
-        if count > max and count > 5:
+        if count > max and count > 2:
             max = count
             index = x
 
