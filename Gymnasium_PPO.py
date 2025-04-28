@@ -199,11 +199,6 @@ env = gym.make("gymnasium_env/EyeSimEnv")
 # train and test parameters
 learning_rate=0.0001
 n_steps=128
-batch_size=64
-n_epochs=10
-gamma=0.99
-ent_coef=0.01
-clip_range=0.2
 
 # TEST ----------------------------------------------------------------------------------------------------------------
 
@@ -235,7 +230,7 @@ def train():
         os.makedirs(logdir)
 
     # Define the PPO model with the specified parameters
-    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, n_steps=64, )
+    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps, learning_rate=learning_rate)
 
     # Train the model for 10 iterations, each with 10,000 timesteps
     for i in range(1,10):
