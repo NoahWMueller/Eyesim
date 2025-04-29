@@ -56,17 +56,12 @@ def eyesim_reset():
         angle = 360 + angle
     angle_variation = randint(-30,30) # random angle variation
     SIMSetRobot(2,S4_pos_x,S4_pos_y,10,-angle+angle_variation)
-    SIMSetObject(1,CAN_pos_x,CAN_pos_y,0,0)
+    SIMSetObject(0,CAN_pos_x,CAN_pos_y,0,0)
     return
 
 def get_distance(x1,y1,x2,y2):
     distance = math.sqrt((x1-x2)**2 + (y1-y2)**2)
     return distance
-
-def get_positions():
-    can_position = SIMGetObject(1)
-    s4_position = SIMGetRobot(2)
-    return can_position, s4_position
 
 
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
@@ -154,7 +149,6 @@ def main():
         elif key == KEY2:
             print(f"find_center = {find_center()}")
             print(f"eyesim_get_position = {eyesim_get_position()}")
-            print(f"get_positions = {get_positions()}")
             
         elif key == KEY4:
             break
