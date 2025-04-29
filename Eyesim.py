@@ -63,47 +63,11 @@ def get_distance(x1,y1,x2,y2):
     distance = math.sqrt((x1-x2)**2 + (y1-y2)**2)
     return distance
 
-# IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
+def get_positions():
+    can_position = SIMGetObject(1)
+    s4_position = SIMGetRobot(2)
+    return can_position, s4_position
 
-# # converts image to new size
-# def image_processing(image):
-#     decoded_array = np.asarray(image, dtype=np.uint8)
-#     image_reshaped = decoded_array.reshape((CAMHEIGHT, CAMWIDTH, 3))
-
-#     # image cropping to desired height
-#     middle = CAMHEIGHT//2
-#     lower = middle - DESIRED_CAMHEIGHT//2
-#     upper = middle + DESIRED_CAMHEIGHT//2
-
-#     image_reshaped = image_reshaped[lower:upper, :, :]
-    
-#     cropped_image = cv2.resize(image_reshaped, (CAMWIDTH, DESIRED_CAMHEIGHT))
-#     return cropped_image
-
-# # function to find and draw center of red object in the image
-# def find_center():
-#     # Get image data from the camera
-#     display_img = CAMGet()
-    
-#     # process image
-#     # procesesed_img = image_processing(img)
-#     # display_img = procesesed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
-#     LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
-#     LCDImage(display_img)
-
-#     # draw centered line
-#     LCDLine(int(0.5*CAMWIDTH), 0, int(0.5*CAMWIDTH), DESIRED_CAMHEIGHT-1, BLUE)
-
-#     # convert to HSI and find red
-#     [h, s, i] = IPCol2HSI(display_img)  # Convert the image to HSI format
-    
-#     index = colour_search(h, s, i)
-
-#     # draw line where red is maximum
-#     if index != -1:
-#         LCDLine(index, 0, index, DESIRED_CAMHEIGHT-1, GREEN)
-
-#     return index
 
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
 
@@ -190,7 +154,8 @@ def main():
         elif key == KEY2:
             print(f"find_center = {find_center()}")
             print(f"eyesim_get_position = {eyesim_get_position()}")
-
+            print(f"get_positions = {get_positions()}")
+            
         elif key == KEY4:
             break
 
