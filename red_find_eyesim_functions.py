@@ -55,8 +55,8 @@ def eyesim_reset():
     if angle < 0:
         angle = 360 + angle
     angle_variation = randint(-30,30) # random angle variation
-    SIMSetRobot(2,S4_pos_x,S4_pos_y,10,-angle+angle_variation)
-    SIMSetObject(0,CAN_pos_x,CAN_pos_y,0,0)
+    SIMSetRobot(1,S4_pos_x,S4_pos_y,10,-angle+angle_variation)
+    SIMSetObject(2,CAN_pos_x,CAN_pos_y,0,0)
     return
 
 def get_distance(x1,y1,x2,y2):

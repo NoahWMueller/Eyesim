@@ -34,6 +34,17 @@ version = 1.3
 models_dir = f"models/{version}"
 logdir = f"logs/{version}"
 
+# Define the world coordinates for the flipped centroids
+flipped_centroids_world_coordinates = [
+    (2781,533),(848,571),(581,705),(400,886),(295,1105),
+    (248,2086),(267,3486),(343,3762),(505,4010),(743,4229),
+    (1000,4371),(2324,4438),(4190,4381),(4543,4143),(4714,3819),
+    (4733,3495),(4610,3190),(3971,2524),(3067,1648),(2733,1419),
+    (2305,1381),(1895,1581),(1676,1905),(1619,2390),(1638,2952),
+    (1752,3210),(1981,3438),(2343,3600),(2762,3581),(3648,2829),
+    (4657,1686),(4714,1257),(4552,867),(4248,629)
+]
+
 # ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
 # Custom environment for the robot simulation using OpenAI Gymnasium
@@ -41,7 +52,7 @@ class EyeSimEnv(gym.Env):
     
     def __init__(self):
         super(EyeSimEnv, self).__init__()
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,)) # Float action space for robot speed, range from -2 to 2
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,)) # Float action space for robot angular speed, range from -1 to 1 TODO include second value for linear speed
         self.observation_space = spaces.Box(low=0, high=255, shape=(DESIRED_CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
 
     def reset(self, seed=None, options=None):
@@ -52,23 +63,22 @@ class EyeSimEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        # Distance to red peak before action
-        init_position = eyesim_get_position() 
+        linear, angular = 0, 0 # TODO update linear and angular speed based on action
+
+        # Determines if robot is inside left lane or has gotten lost
+        position = eyesim_get_position() 
         
-        # Set robot speed based on action
-        eyesim_set_robot_speed(round(float(action[0]),2)) 
-        
-        # Distance to red peak after action
-        after_position = eyesim_get_position() 
+        # Set robot linear and angular speed based on action
+        eyesim_set_robot_speed(linear, angular) 
 
         # Read image from camera
-        observation = eyesim_get_observation() 
+        observation = eyesim_get_observation()
 
-        # Calculate reward based on position or sensor readings
-        reward = self.calculate_reward(init_position,after_position)
+        # Calculate reward based on position
+        reward = self.calculate_reward(position)
 
         # Determine if the episode is done
-        done = self.is_done(after_position)
+        done = self.is_done(position)
 
         # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
@@ -76,39 +86,19 @@ class EyeSimEnv(gym.Env):
 
         return observation, reward, done, truncated, info
 
-    def calculate_reward(self, init_position, after_position):
-
-        # scaling factor to increase reward as the robot gets closer to the red peak and increase penalty as it moves away
-        scaling_factor = (after_position / 80)
-
-        if after_position == -1: # if the robot is lost
-            reward = -10.0
-        elif after_position < init_position and after_position != -1 or init_position == -1 and after_position != -1: # if the robot is moving towards the red peak
-            reward = 1.0 * 5*(1-scaling_factor)
-        elif after_position == 0: # if the robot is at the red peak
-            reward = 10.0
-        elif after_position > init_position and init_position != -1: # if the robot is moving away from the red peak
-            reward = -1.0 * 5 * scaling_factor
-        else: reward = 0
-
-        return reward
+    def calculate_reward(self, position):
+        return False
 
     def is_done(self, position):
-        # Check if the robot is lost or if it is at the red peak
-        if position == -1: 
-            return True
-        elif position == 0: 
-            return True
-        else: 
-            return False
+        return False
 
 # EYESIM FUNCTIONS --------------------------------------------------------------------------------------------------
 
 # Function to set the speed of the robot based on the action taken
-def eyesim_set_robot_speed(direction): 
+def eyesim_set_robot_speed(linear, angular): 
     # Set the speed of the robot based on the action taken
     speed = 25
-    VWSetSpeed(0,round(speed*direction)) # Set the speed of the robot
+    VWSetSpeed(round(speed*linear),round(speed*angular)) # Set the speed of the robot
     time.sleep(0.25) # Wait for 0.25 seconds to allow the robot to move
     VWSetSpeed(0,0) # Stop the robot
 
@@ -128,64 +118,20 @@ def eyesim_get_observation():
 
 # Function to get the distance to the red peak
 def eyesim_get_position(): 
-    # Get the distance to the red peak using the find_center function
-    index = find_center()
+    # TODO determine if robot is inside new polygon or is outside the allowed space
+    return
 
-    # Adjust index to be between 0 and 80 
-    # With 0 being the red peak and 80 being the edge of the camera view and -1 being lost
-    if index >= 80:
-        index -= 80
-    elif index != -1 and index < 80:
-        index = 80 - index
-    return index
-
-# Function to set the can position randomly
-def rand_can_pos(): 
-    CAN_pos_x = randint(200, 1800)
-    CAN_pos_y = randint(200, 1800)
-    return CAN_pos_x, CAN_pos_y
 
 # Function to reset the robot and can positions in the simulation
 def eyesim_reset(): 
-    # stop robot movement
+    # Stop robot movement
     VWSetSpeed(0,0)
-
-    # Set the robot and can positions randomly
-    S4_pos_x = randint(200, 1800)
-    S4_pos_y = randint(200, 1800)
-
-    CAN_pos_x = randint(200, 1800)
-    CAN_pos_y = randint(200, 1800)
-    
-    # Ensure the can is not too close to the robot if so reposition it
-    while get_distance(S4_pos_x,S4_pos_y,CAN_pos_x,CAN_pos_y) < 500:
-        CAN_pos_x, CAN_pos_y = rand_can_pos()
-    
-    # Find the angle between the robot and the can
-    angle = math.atan2(CAN_pos_y-S4_pos_y,CAN_pos_x-S4_pos_x)
-    angle = round(math.degrees(angle))
-
-    # Adjust the angle to be between 0 and 360 degrees
-    if angle < 0:
-        angle = 360 + angle
-
-    # Add a random angle variation to the robot's angle in range 
-    angle_variation = 0
-    while -5 < angle_variation < 5: # Ensure the angle variation is not too small
-        angle_variation = randint(-30,30)
-    
-    # Adjustment for simulation functions
-    angle = -angle + angle_variation
+    # TODO randomize position based on centroid positions
+    # TODO set angle so robot is always facing in the correct direction
 
     # Position the robot and can in the simulation
-    SIMSetRobot(2,S4_pos_x,S4_pos_y,10,angle)
-    SIMSetObject(1,CAN_pos_x,CAN_pos_y,0,0)
+    SIMSetRobot(2,0,0,10,0)
     return
-
-# Function to calculate the distance between two points
-def get_distance(x1,y1,x2,y2): 
-    distance = math.sqrt((x1-x2)**2 + (y1-y2)**2)
-    return distance
 
 # INITIALIZE ----------------------------------------------------------------------------------------------------------
 
@@ -292,47 +238,6 @@ def image_processing(image):
     cropped_image = cv2.resize(image_reshaped, (CAMWIDTH, DESIRED_CAMHEIGHT))
     return cropped_image
 
-# Function to find the center of the red peak in the image
-def find_center(): 
-    # Get image data from the camera
-    img = CAMGet()
-
-    # convert to HSI and find index of red color peak
-    [h, s, i] = IPCol2HSI(img)  
-    index = colour_search(h, s, i)
-
-    return index
-
-# COLOUR DETECTION -------------------------------------------------------------------------------------------------------
-
-# Function to search for the red color in the image
-def colour_search(h, s, i): 
-    # Initialize a histogram array for each column (0 to 159)
-    histogram = [0] * CAMWIDTH  
-
-    # Loop over each column of the image
-    index, max = -1, 0
-    for x in range(CAMWIDTH):
-        count = 0  # Reset the count of red pixels for each column
-
-        # Loop over each row of the column
-        for y in range(DESIRED_CAMHEIGHT):
-            pos = y * CAMWIDTH + x  # Calculate the position in the 1D array
-            
-            # Check if the pixel matches the criteria to be considered red
-            if (0 <= h[pos] < 50 or 359 > h[pos] > 345) and (i[pos] > 60 or i[pos] < -100)  and (s[pos] > 50 or s[pos] < -100):
-                count += 1
-                
-        # Store the count of red pixels in the histogram array for this column
-        histogram[x] = count
-        
-        # find the highest count and filter out any small patches of red
-        if count > max and count > 2:
-            max = count
-            index = x
-
-    return index
-        
 # MAIN -------------------------------------------------------------------------------------------------------
 
 def main():
