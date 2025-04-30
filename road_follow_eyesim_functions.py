@@ -52,7 +52,7 @@ def eyesim_get_observation():
 
 # Function to get the distance to the red peak
 def eyesim_get_position(): 
-    x,y,z,phi = SIMGetRobot(1)
+    [x,y,z,phi] = SIMGetRobot(1)
     print(x,y,z,phi)
     point = (int(x), int(y))
     result = 0
@@ -81,9 +81,11 @@ def eyesim_get_position():
 def eyesim_reset(): 
     # Stop robot movement
     VWSetSpeed(0,0)
-    for x,y,phi in coordinates:
-        # Position the robot and can in the simulation
-        SIMSetRobot(1,x,y,10,phi)
+    random = randint(0,len(coordinates)-1)
+    print(random)
+    # Position the robot and can in the simulation
+    x,y,phi = coordinates[random]
+    SIMSetRobot(1,x,y,10,phi)
 
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
 
