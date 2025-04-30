@@ -76,7 +76,7 @@ class EyeSimEnv(gym.Env):
         low = np.array([-1.0, 0.0], dtype=np.float32)
         high = np.array([1.0, 1.0], dtype=np.float32)
 
-        self.action_space = spaces.Box(low=low, high=high, shape = (2,), dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1 TODO include second value for linear speed
+        self.action_space = spaces.Box(low=low, high=high, dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1 TODO include second value for linear speed
         self.observation_space = spaces.Box(low=0, high=255, shape=(DESIRED_CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
 
     def reset(self, seed=None, options=None):
@@ -87,7 +87,7 @@ class EyeSimEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        linear, angular = action[0], action[1] # TODO update linear and angular speed based on action
+        angular, linear = action[0], action[1] # linear and angular action
 
         # Determines if robot is inside left lane or has gotten lost
         polygon1, polygon2 = eyesim_get_position() 
