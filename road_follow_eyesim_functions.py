@@ -67,8 +67,8 @@ def eyesim_get_observation():
 def eyesim_get_position(): 
     [x,y,_,_] = SIMGetRobot(1)
     point = (x.value, y.value)
-    result = 0
-
+    result1,result2 = -1,-1
+    
     polygon = np.array([
         flipped_left_lane_world_coordinates[current_polygon*2],
         flipped_left_lane_world_coordinates[current_polygon*2+1],
@@ -76,13 +76,30 @@ def eyesim_get_position():
         flipped_left_lane_world_coordinates[(current_polygon*2+2)%68]
     ], np.int32)
 
+    next_polygon = current_polygon + 1
+
+    polygon_2 = np.array([
+        flipped_left_lane_world_coordinates[next_polygon*2],
+        flipped_left_lane_world_coordinates[next_polygon*2+1],
+        flipped_left_lane_world_coordinates[(next_polygon*2+3)%68],
+        flipped_left_lane_world_coordinates[(next_polygon*2+2)%68]
+    ], np.int32)
+
     # Reshape the polygon points
     polygon = polygon.reshape((-1, 1, 2))
 
+    # Reshape the polygon points
+    polygon_2 = polygon_2.reshape((-1, 1, 2))
+
     # Check if the point is inside the polygon
-    result = cv2.pointPolygonTest(polygon, point, False)
+    result1 = cv2.pointPolygonTest(polygon, point, False)
+
+
+    # Check if the point is inside the polygon
+    result2 = cv2.pointPolygonTest(polygon_2, point, False)
+
     # If the point is inside the polygon return
-    return result
+    return result1,result2
 
 # Function to reset the robot and can positions in the simulation
 def eyesim_reset(): 
