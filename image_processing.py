@@ -73,13 +73,13 @@ flipped_centroids_world_coordinates = [
 
 # Define the flipped centroid positions including angle
 coordinates = [
-    (233,56,1),(436,60,30),(464,74,50),(483,93,70),(494,116,82),(499,219,91),
-    (497,366,109),(489,395,124),(472,421,141),(447,444,154),(420,459,170),
-    (281,466,-180),(85,460,-151),(48,435,-120),(30,401,-91),(28,367,-67),
-    (41,335,-45),(108,265,-42),(203,173,-36),(238,149,-10),(283,145,21),
-    (326,166,54),(349,200,81),(355,251,92),(353,310,116),(341,337,132),
-    (317,361,153),(279,378,178),(235,376,-153),(142,297,-133),(36,177,-104),
-    (30,132,-70),(47,91,-42),(79,66,-14)
+    (292,469,1),(89,465,30),(61,451,50),(42,432,70),(31,409,82),
+    (26,306,91),(28,159,109),(36,130,124),(53,104,141),(78,81,154),
+    (105,66,170),(244,59,-180),(440,65,-151),(477,90,-120),(495,124,-91),
+    (497,158,-67),(484,190,-45),(417,260,-42),(322,352,-36),(287,376,-10),
+    (242,380,21),(199,359,54),(176,325,81),(170,274,92),(172,215,116),
+    (184,188,132),(208,164,153),(246,147,178),(290,149,-153),(383,228,-133),
+    (489,348,-104),(495,393,-70),(478,434,-42),(446,459,-14)
 ]
 
 # Define the image dimensions (from Carolo.png)
@@ -140,7 +140,6 @@ def image_processing(image, file_write=False):
             
             if file_write == True :
                 file.write(f"({x_centroid},{y_centroid},{round(angle_deg)}),")
-                # print(i//2)
                 if (i//2) % 5 == 0 and i > 0: 
                     file.write("\n")
     return image
@@ -182,6 +181,22 @@ def flip_points(points, filename):
             if i % 5 == 0: file.write("\n")
             i+=1
 
+# Function to flip points based on the frame dimensions and save to file with angle
+def flip_points(points, filename):
+    flipped_points = []
+    for x, y, phi in points:
+        new_x = img_width - x
+        new_y = img_height - y
+        flipped_points.append((new_x, new_y, phi))
+
+    with open(f"{filename}.txt", "w") as file:
+        i = 1
+        for x, y, phi in flipped_points:
+            file.write(f"({x},{y},{phi}),")
+            if i % 5 == 0: file.write("\n")
+            i+=1
+
+
 # Function to convert points to world coordinates and save to file
 def convert_to_world_coordinates(points, filename):
     world_coordinates = [
@@ -219,6 +234,6 @@ def save_image(image, filename):
     image = image_processing(image, file_write=True)
     cv2.imwrite(filename, image)
 
-convert_to_world_coordinates_angle(coordinates, "points/centroids_world")
+convert_to_world_coordinates_angle(coordinates, "points/flipped_centroids_world_coordinates")
 
-save_image(image, 'Sims/Carolo_labelled.png')
+# save_image(image, 'Sims/Carolo_labelled.png')

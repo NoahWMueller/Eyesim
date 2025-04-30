@@ -5,7 +5,6 @@
 from random import randint
 import time
 import cv2
-import math
 from eye import *
 import numpy as np
 
@@ -13,17 +12,17 @@ import numpy as np
 
 CAMWIDTH = 160
 CAMHEIGHT = 120
-DESIRED_CAMHEIGHT = 120 # TODO change back
+DESIRED_CAMHEIGHT = 60
 
 # Define the world dimensions with required angle
 coordinates = [
-    (2219,4467,1),(4152,4429,30),(4419,4295,50),(4600,4114,70),(4705,3895,82),
-    (4752,2914,91),(4733,1514,109),(4657,1238,124),(4495,990,141),(4257,771,154),
-    (4000,629,170),(2676,562,-180),(810,619,-151),(457,857,-120),(286,1181,-91),
-    (267,1505,-67),(390,1810,-45),(1029,2476,-42),(1933,3352,-36),(2267,3581,-10),
-    (2695,3619,21),(3105,3419,54),(3324,3095,81),(3381,2610,92),(3362,2048,116),
-    (3248,1790,132),(3019,1562,153),(2657,1400,178),(2238,1419,-153),(1352,2171,-133),
-    (343,3314,-104),(286,3743,-70),(448,4133,-42),(752,4371,-14)
+    (2781,533,1),(848,571,30),(581,705,50),(400,886,70),(295,1105,82),
+    (248,2086,91),(267,3486,109),(343,3762,124),(505,4010,141),(743,4229,154),
+    (1000,4371,170),(2324,4438,-180),(4190,4381,-151),(4543,4143,-120),(4714,3819,-91),
+    (4733,3495,-67),(4610,3190,-45),(3971,2524,-42),(3067,1648,-36),(2733,1419,-10),
+    (2305,1381,21),(1895,1581,54),(1676,1905,81),(1619,2390,92),(1638,2952,116),
+    (1752,3210,132),(1981,3438,153),(2343,3600,178),(2762,3581,-153),(3648,2829,-133),
+    (4657,1686,-104),(4714,1257,-70),(4552,867,-42),(4248,629,-14)
 ]
 
 # EYESIM FUNCTIONS --------------------------------------------------------------------------------------------------
@@ -46,9 +45,10 @@ def eyesim_get_observation():
 
     # Optional: Display the processed image on the LCD screen
     display_img = processed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
-    LCDImage(display_img)
 
-    return processed_img
+    LCDImage(img)
+
+    return img
 
 # Function to get the distance to the red peak
 def eyesim_get_position(): 
@@ -81,11 +81,13 @@ def eyesim_get_position():
 def eyesim_reset(): 
     # Stop robot movement
     VWSetSpeed(0,0)
+
+    # Pick random position along the road to start
     random = randint(0,len(coordinates)-1)
-    print(random)
-    # Position the robot and can in the simulation
+
+    # Position the robot in the simulation
     x,y,phi = coordinates[random]
-    SIMSetRobot(1,x,y,10,phi)
+    SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
 
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
 
@@ -119,6 +121,7 @@ def main():
 
         if key == KEY1:
             eyesim_reset()
+            eyesim_get_observation()
 
         elif key == KEY2:
             print(f"eyesim_get_position = {eyesim_get_position()}")
