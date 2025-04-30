@@ -14,6 +14,9 @@ CAMWIDTH = 160
 CAMHEIGHT = 120
 DESIRED_CAMHEIGHT = 60
 
+# Current polygon where the robot was placed
+current_polygon = 0
+
 # define the world coordinates for the left lane
 flipped_left_lane_world_coordinates = [
     (3990,400),(4000,733),(943,410),(962,733),(590,543),
@@ -82,9 +85,9 @@ def eyesim_get_position():
         print(result)
         # If the point is inside the polygon return
         if result > 0:
-            print(f"Point {point} is inside the polygon {i}")
             break
     return result
+
 
 # Function to reset the robot and can positions in the simulation
 def eyesim_reset(): 
@@ -93,7 +96,7 @@ def eyesim_reset():
 
     # # Pick random position along the road to start
     random = randint(0,len(coordinates)-1)
-
+    current_polygon = random
     # # Position the robot in the simulation
     x,y,phi = coordinates[random]
     SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction

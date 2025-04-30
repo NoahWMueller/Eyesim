@@ -155,10 +155,8 @@ def eyesim_get_position():
 
         # Check if the point is inside the polygon
         result = cv2.pointPolygonTest(polygon, point, False)
-        print(result)
         # If the point is inside the polygon return
         if result > 0:
-            print(f"Point {point} is inside the polygon {i}")
             break
     return result
 

@@ -101,6 +101,8 @@ def image_processing(image, file_write=False):
         for i, (x, y) in enumerate(left_lane_coordinates[:-2]):
             # Draw the point on the image
             cv2.circle(image, (x, y), 5, (0, 0, 255), -1)
+            # Add a label with the point index: image, text, position, font, font scale, color, thickness
+            cv2.putText(image, str(i), (x, y+10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
             
         # Creating polygons and finding centre point of each polygon
         for i in range(0, len(left_lane_coordinates)-2, 2):
@@ -182,7 +184,7 @@ def flip_points(points, filename):
             i+=1
 
 # Function to flip points based on the frame dimensions and save to file with angle
-def flip_points(points, filename):
+def flip_points_angles(points, filename):
     flipped_points = []
     for x, y, phi in points:
         new_x = img_width - x
@@ -205,7 +207,7 @@ def convert_to_world_coordinates(points, filename):
     ]
     with open(f"{filename}.txt", "w") as file:
         i = 1
-        for x, y, in world_coordinates:
+        for x, y in world_coordinates:
             file.write(f"({x},{y}),")
             if i % 5 == 0: file.write("\n")
             i+=1
@@ -234,6 +236,6 @@ def save_image(image, filename):
     image = image_processing(image, file_write=True)
     cv2.imwrite(filename, image)
 
-convert_to_world_coordinates_angle(coordinates, "points/flipped_centroids_world_coordinates")
+# convert_to_world_coordinates_angle(coordinates, "points/flipped_centroids_world_coordinates")
 
-# save_image(image, 'Sims/Carolo_labelled.png')
+save_image(image, 'Sims/Carolo_labelled.png')
