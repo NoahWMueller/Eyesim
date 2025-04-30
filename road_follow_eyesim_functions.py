@@ -14,6 +14,25 @@ CAMWIDTH = 160
 CAMHEIGHT = 120
 DESIRED_CAMHEIGHT = 60
 
+# define the world coordinates for the left lane
+flipped_left_lane_world_coordinates = [
+    (3990,400),(4000,733),(943,410),(962,733),(590,543),
+    (771,790),(352,714),(600,943),(190,1010),(505,1057),
+    (114,1229),(438,1248),(114,3381),(429,3381),(181,3705),
+    (467,3590),(305,3981),(571,3829),(552,4257),(771,4019),
+    (819,4438),(981,4171),(1171,4562),(1190,4248),(4029,4581),
+    (4019,4267),(4524,4362),(4333,4133),(4800,4000),(4514,3895),
+    (4876,3619),(4562,3610),(4790,3248),(4524,3390),(4581,2943),
+    (4362,3162),(3257,1686),(3057,1905),(2981,1390),(2743,1610),
+    (2476,1229),(2476,1514),(1943,1352),(2114,1619),(1590,1743),
+    (1876,1867),(1486,2067),(1810,2105),(1476,2867),(1800,2857),
+    (1581,3171),(1838,3029),(1743,3448),(2000,3238),(2124,3695),
+    (2267,3400),(2590,3771),(2600,3448),(3095,3581),(2895,3343),
+    (4695,1933),(4448,1724),(4876,1457),(4562,1400),(4762,924),
+    (4486,1086),(4486,600),(4267,819),(3990,400),(4000,733)
+]
+
+
 # Define the world dimensions with required angle
 coordinates = [
     (2781,533,1),(848,571,30),(581,705,50),(400,886,70),(295,1105,82),
@@ -27,14 +46,6 @@ coordinates = [
 
 # EYESIM FUNCTIONS --------------------------------------------------------------------------------------------------
 
-# Function to set the speed of the robot based on the action taken
-def eyesim_set_robot_speed(linear, angular): 
-    # Set the speed of the robot based on the action taken
-    speed = 25
-    VWSetSpeed(round(speed*linear),round(speed*angular)) # Set the speed of the robot
-    time.sleep(0.25) # Wait for 0.25 seconds to allow the robot to move
-    VWSetSpeed(0,0) # Stop the robot
-
 # Function to get the image from the camera and process it
 def eyesim_get_observation(): 
     # Get image from camera
@@ -46,22 +57,21 @@ def eyesim_get_observation():
     # Optional: Display the processed image on the LCD screen
     display_img = processed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
 
-    LCDImage(img)
+    LCDImage(display_img)
 
-    return img
+    return processed_img
 
 # Function to get the distance to the red peak
 def eyesim_get_position(): 
-    [x,y,z,phi] = SIMGetRobot(1)
-    print(x,y,z,phi)
-    point = (int(x), int(y))
+    [x,y,_,_] = SIMGetRobot(1)
+    point = (x.value, y.value)
     result = 0
-    for i in range(0, len(coordinates)-2, 2):
+    for i in range(0, len(flipped_left_lane_world_coordinates)-2, 2):
         polygon = np.array([
-            coordinates[i][:1],
-            coordinates[i+1][:1],
-            coordinates[i+3][:1],
-            coordinates[i+2][:1]
+            flipped_left_lane_world_coordinates[i],
+            flipped_left_lane_world_coordinates[i+1],
+            flipped_left_lane_world_coordinates[i+3],
+            flipped_left_lane_world_coordinates[i+2]
         ], np.int32)
 
         # Reshape the polygon points
@@ -69,23 +79,22 @@ def eyesim_get_position():
 
         # Check if the point is inside the polygon
         result = cv2.pointPolygonTest(polygon, point, False)
-
+        print(result)
         # If the point is inside the polygon return
         if result > 0:
             print(f"Point {point} is inside the polygon {i}")
             break
     return result
 
-
 # Function to reset the robot and can positions in the simulation
 def eyesim_reset(): 
     # Stop robot movement
     VWSetSpeed(0,0)
 
-    # Pick random position along the road to start
+    # # Pick random position along the road to start
     random = randint(0,len(coordinates)-1)
 
-    # Position the robot in the simulation
+    # # Position the robot in the simulation
     x,y,phi = coordinates[random]
     SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
 
@@ -114,7 +123,7 @@ def main():
     CAMInit(QQVGA)
 
     while True:
-        
+        LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
         LCDMenu("RESET", "DISTANCE", "-", "STOP")
 
         key = KEYRead()
