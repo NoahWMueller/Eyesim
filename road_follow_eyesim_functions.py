@@ -35,7 +35,6 @@ flipped_left_lane_world_coordinates = [
     (4486,1086),(4486,600),(4267,819),(3990,400),(4000,733)
 ]
 
-
 # Define the world dimensions with required angle
 coordinates = [
     (2781,533,1),(848,571,30),(581,705,50),(400,886,70),(295,1105,82),
@@ -69,34 +68,32 @@ def eyesim_get_position():
     [x,y,_,_] = SIMGetRobot(1)
     point = (x.value, y.value)
     result = 0
-    for i in range(0, len(flipped_left_lane_world_coordinates)-2, 2):
-        polygon = np.array([
-            flipped_left_lane_world_coordinates[i],
-            flipped_left_lane_world_coordinates[i+1],
-            flipped_left_lane_world_coordinates[i+3],
-            flipped_left_lane_world_coordinates[i+2]
-        ], np.int32)
 
-        # Reshape the polygon points
-        polygon = polygon.reshape((-1, 1, 2))
+    polygon = np.array([
+        flipped_left_lane_world_coordinates[current_polygon*2],
+        flipped_left_lane_world_coordinates[current_polygon*2+1],
+        flipped_left_lane_world_coordinates[(current_polygon*2+3)%68],
+        flipped_left_lane_world_coordinates[(current_polygon*2+2)%68]
+    ], np.int32)
 
-        # Check if the point is inside the polygon
-        result = cv2.pointPolygonTest(polygon, point, False)
-        print(result)
-        # If the point is inside the polygon return
-        if result > 0:
-            break
+    # Reshape the polygon points
+    polygon = polygon.reshape((-1, 1, 2))
+
+    # Check if the point is inside the polygon
+    result = cv2.pointPolygonTest(polygon, point, False)
+    # If the point is inside the polygon return
     return result
-
 
 # Function to reset the robot and can positions in the simulation
 def eyesim_reset(): 
+    global current_polygon
     # Stop robot movement
     VWSetSpeed(0,0)
 
     # # Pick random position along the road to start
     random = randint(0,len(coordinates)-1)
     current_polygon = random
+
     # # Position the robot in the simulation
     x,y,phi = coordinates[random]
     SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction

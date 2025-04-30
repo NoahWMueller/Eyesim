@@ -95,14 +95,14 @@ scale_x = world_width / img_width
 scale_y = world_height / img_height
 
 # Function to add polygons to the image
-def image_processing(image, file_write=False):
+def image_processing(image, file_write=True):
     with open("points/centroids.txt", "w") as file:
         # Draw a small red circle at each coordinate and label with index
         for i, (x, y) in enumerate(left_lane_coordinates[:-2]):
             # Draw the point on the image
             cv2.circle(image, (x, y), 5, (0, 0, 255), -1)
             # Add a label with the point index: image, text, position, font, font scale, color, thickness
-            cv2.putText(image, str(i), (x, y+10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            cv2.putText(image, str(i), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
             
         # Creating polygons and finding centre point of each polygon
         for i in range(0, len(left_lane_coordinates)-2, 2):
@@ -225,17 +225,13 @@ def convert_to_world_coordinates_angle(points, filename):
             if i % 5 == 0: file.write("\n")
             i+=1
 
-# Function to show the image
-def show_image(image):
-    cv2.imshow('Image', image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
 # Function to save the image
 def save_image(image, filename):
-    image = image_processing(image, file_write=True)
+    image = image_processing(image)
+    cv2.imshow('Image 2', image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
     cv2.imwrite(filename, image)
 
 # convert_to_world_coordinates_angle(coordinates, "points/flipped_centroids_world_coordinates")
-
-save_image(image, 'Sims/Carolo_labelled.png')
+save_image(image, 'Carolo_labelled.png')
