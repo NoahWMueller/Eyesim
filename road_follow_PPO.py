@@ -72,7 +72,11 @@ class EyeSimEnv(gym.Env):
     
     def __init__(self):
         super(EyeSimEnv, self).__init__()
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,)) # Float action space for robot angular speed, range from -1 to 1 TODO include second value for linear speed
+        # Define the lower and upper bounds
+        low = np.array([-1.0, 0.0], dtype=np.float32)
+        high = np.array([1.0, 1.0], dtype=np.float32)
+
+        self.action_space = spaces.Box(low=low, high=high, shape = (2,), dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1 TODO include second value for linear speed
         self.observation_space = spaces.Box(low=0, high=255, shape=(DESIRED_CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
 
     def reset(self, seed=None, options=None):
@@ -83,10 +87,10 @@ class EyeSimEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        linear, angular = 0, 0 # TODO update linear and angular speed based on action
+        linear, angular = action[0], action[1] # TODO update linear and angular speed based on action
 
         # Determines if robot is inside left lane or has gotten lost
-        position = eyesim_get_position() 
+        polygon1, polygon2 = eyesim_get_position() 
         
         # Set robot linear and angular speed based on action
         eyesim_set_robot_speed(linear, angular) 
@@ -95,10 +99,10 @@ class EyeSimEnv(gym.Env):
         observation = eyesim_get_observation()
 
         # Calculate reward based on position
-        reward = self.calculate_reward(position)
+        reward = self.calculate_reward(polygon1, polygon2)
 
         # Determine if the episode is done
-        done = self.is_done(position)
+        done = self.is_done(polygon1, polygon2)
 
         # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
@@ -106,11 +110,18 @@ class EyeSimEnv(gym.Env):
 
         return observation, reward, done, truncated, info
 
-    def calculate_reward(self, position):
-        return False
+    def calculate_reward(self, polygon1, polygon2):
+        if polygon2 > 0: 
+            return 1
+        if polygon1 < 0 and polygon2 < 0: 
+            return -1
 
-    def is_done(self, position):
-        return False
+    def is_done(self, polygon1, polygon2):
+        # Robot is inside the the second polygon or outide the left lane
+        if polygon1 < 0 or polygon2 > 0: 
+            return True
+        else:
+            return False
 
 # EYESIM FUNCTIONS --------------------------------------------------------------------------------------------------
 
@@ -141,37 +152,52 @@ def eyesim_get_observation():
 def eyesim_get_position(): 
     [x,y,_,_] = SIMGetRobot(1)
     point = (x.value, y.value)
-    result = 0
-    for i in range(0, len(flipped_left_lane_world_coordinates)-2, 2):
-        polygon = np.array([
-            flipped_left_lane_world_coordinates[i],
-            flipped_left_lane_world_coordinates[i+1],
-            flipped_left_lane_world_coordinates[i+3],
-            flipped_left_lane_world_coordinates[i+2]
-        ], np.int32)
+    result1,result2 = -1,-1
+    
+    polygon = np.array([
+        flipped_left_lane_world_coordinates[current_polygon*2],
+        flipped_left_lane_world_coordinates[current_polygon*2+1],
+        flipped_left_lane_world_coordinates[(current_polygon*2+3)%68],
+        flipped_left_lane_world_coordinates[(current_polygon*2+2)%68]
+    ], np.int32)
 
-        # Reshape the polygon points
-        polygon = polygon.reshape((-1, 1, 2))
+    next_polygon = current_polygon + 1
 
-        # Check if the point is inside the polygon
-        result = cv2.pointPolygonTest(polygon, point, False)
-        # If the point is inside the polygon return
-        if result > 0:
-            break
-    return result
+    polygon_2 = np.array([
+        flipped_left_lane_world_coordinates[next_polygon*2],
+        flipped_left_lane_world_coordinates[next_polygon*2+1],
+        flipped_left_lane_world_coordinates[(next_polygon*2+3)%68],
+        flipped_left_lane_world_coordinates[(next_polygon*2+2)%68]
+    ], np.int32)
+
+    # Reshape the polygon points
+    polygon = polygon.reshape((-1, 1, 2))
+
+    # Reshape the polygon points
+    polygon_2 = polygon_2.reshape((-1, 1, 2))
+
+    # Check if the point is inside the polygon
+    result1 = cv2.pointPolygonTest(polygon, point, False)
+
+    # Check if the point is inside the polygon
+    result2 = cv2.pointPolygonTest(polygon_2, point, False)
+
+    # If the point is inside the polygon return
+    return result1,result2
 
 # Function to reset the robot and can positions in the simulation
 def eyesim_reset(): 
+    global current_polygon
     # Stop robot movement
     VWSetSpeed(0,0)
 
     # # Pick random position along the road to start
     random = randint(0,len(coordinates)-1)
+    current_polygon = random
 
     # # Position the robot in the simulation
     x,y,phi = coordinates[random]
     SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
-
 # INITIALIZE ----------------------------------------------------------------------------------------------------------
 
 # Register the environment with gymnasium and create an instance of it
