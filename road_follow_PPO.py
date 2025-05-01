@@ -28,11 +28,21 @@ DESIRED_CAMHEIGHT = 60
 algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
+<<<<<<< HEAD
 version = 1.2
+=======
+version = 1.1
+>>>>>>> 5af5325861d62d284c1092e6b67b62876d7ee432
 
 # Directory paths for saving models and logs
-models_dir = f"models/{version}"
-logdir = f"logs/{version}"
+models_dir = f"models/Carolo/{version}"
+logdir = f"logs/Carolo/{version}"
+
+# polygon positions
+current_polygon = np.array([])
+current_centroid = 0
+next_polygon = np.array([])
+next_centroid = 0
 
 # define the world coordinates for the left lane
 flipped_left_lane_world_coordinates = [
@@ -96,7 +106,7 @@ class EyeSimEnv(gym.Env):
         angular, linear = action[0], action[1] # linear and angular action
 
         # Determines if robot is inside left lane or has gotten lost
-        polygon1, polygon2 = eyesim_get_position() 
+        result1, result2 = eyesim_get_position() 
         
         # Set robot linear and angular speed based on action
         eyesim_set_robot_speed(linear, angular) 
@@ -105,10 +115,10 @@ class EyeSimEnv(gym.Env):
         observation = eyesim_get_observation()
 
         # Calculate reward based on position
-        reward = self.calculate_reward(polygon1, polygon2)
+        reward = self.calculate_reward(result1, result2)
 
         # Determine if the episode is done
-        done = self.is_done(polygon1, polygon2)
+        done = self.is_done(result1,result2)
 
         # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
@@ -116,26 +126,32 @@ class EyeSimEnv(gym.Env):
 
         return observation, reward, done, truncated, info
 
-    def calculate_reward(self, polygon1, polygon2):
-        if polygon2 > 0: 
-            return 1
-        if polygon1 < 0 and polygon2 < 0: 
-            return -1
-
-    def is_done(self, polygon1, polygon2):
-        # Robot is inside the the second polygon or outide the left lane
-        if polygon1 < 0 or polygon2 > 0: 
-            return True
+    def calculate_reward(self, result1, result2):
+        global current_centroid
+        if result2 > 0:
+            # update previous polygon to current polygon and repeat 
+            current_centroid += 1
+            current_centroid %= 34
+            update_polygon()
+            return 1.0
+        if result1 < 0 and result2 < 0: 
+            return -1.0
         else:
-            return False
+            return 0.0
+
+    def is_done(self, result1, result2):
+        # Determine if the robot left all allowable polygons
+        if result1 == -1 and result2 == -1: return True
+        else: return False
 
 # EYESIM FUNCTIONS --------------------------------------------------------------------------------------------------
 
 # Function to set the speed of the robot based on the action taken
 def eyesim_set_robot_speed(linear, angular): 
     # Set the speed of the robot based on the action taken
-    speed = 25
-    VWSetSpeed(round(speed*linear),round(speed*angular)) # Set the speed of the robot
+    linear_speed = 100
+    angular_speed = 50
+    VWSetSpeed(round(linear_speed*linear),round(angular_speed*angular)) # Set the speed of the robot
     time.sleep(0.25) # Wait for 0.25 seconds to allow the robot to move
     VWSetSpeed(0,0) # Stop the robot
 
@@ -154,52 +170,57 @@ def eyesim_get_observation():
 
     return processed_img
 
+def update_polygon():
+    global current_polygon, next_polygon, next_centroid
+    current_polygon = np.array([
+        flipped_left_lane_world_coordinates[current_centroid*2],
+        flipped_left_lane_world_coordinates[current_centroid*2+1],
+        flipped_left_lane_world_coordinates[(current_centroid*2+3)],
+        flipped_left_lane_world_coordinates[(current_centroid*2+2)]
+    ], np.int32)
+
+    next_centroid = (current_centroid + 1)% 34
+
+    next_polygon = np.array([
+        flipped_left_lane_world_coordinates[next_centroid*2],
+        flipped_left_lane_world_coordinates[next_centroid*2+1],
+        flipped_left_lane_world_coordinates[(next_centroid*2+3)],
+        flipped_left_lane_world_coordinates[(next_centroid*2+2)]
+    ], np.int32)
+
+
 # Function to get the distance to the red peak
 def eyesim_get_position(): 
+    global current_polygon, next_polygon
     [x,y,_,_] = SIMGetRobot(1)
     point = (x.value, y.value)
-    result1,result2 = -1,-1
     
-    polygon = np.array([
-        flipped_left_lane_world_coordinates[current_polygon*2],
-        flipped_left_lane_world_coordinates[current_polygon*2+1],
-        flipped_left_lane_world_coordinates[(current_polygon*2+3)%68],
-        flipped_left_lane_world_coordinates[(current_polygon*2+2)%68]
-    ], np.int32)
-
-    next_polygon = current_polygon + 1
-
-    polygon_2 = np.array([
-        flipped_left_lane_world_coordinates[next_polygon*2],
-        flipped_left_lane_world_coordinates[next_polygon*2+1],
-        flipped_left_lane_world_coordinates[(next_polygon*2+3)%68],
-        flipped_left_lane_world_coordinates[(next_polygon*2+2)%68]
-    ], np.int32)
+    update_polygon()
 
     # Reshape the polygon points
-    polygon = polygon.reshape((-1, 1, 2))
+    current_polygon = current_polygon.reshape((-1, 1, 2))
 
     # Reshape the polygon points
-    polygon_2 = polygon_2.reshape((-1, 1, 2))
+    next_polygon = next_polygon.reshape((-1, 1, 2))
 
     # Check if the point is inside the polygon
-    result1 = cv2.pointPolygonTest(polygon, point, False)
+    current_result = cv2.pointPolygonTest(current_polygon, point, False)
 
     # Check if the point is inside the polygon
-    result2 = cv2.pointPolygonTest(polygon_2, point, False)
+    next_result = cv2.pointPolygonTest(next_polygon, point, False)
 
     # If the point is inside the polygon return
-    return result1,result2
+    return current_result, next_result
 
 # Function to reset the robot and can positions in the simulation
 def eyesim_reset(): 
-    global current_polygon
+    global current_centroid
     # Stop robot movement
     VWSetSpeed(0,0)
 
     # # Pick random position along the road to start
     random = randint(0,len(coordinates)-1)
-    current_polygon = random
+    current_centroid = random
 
     # # Position the robot in the simulation
     x,y,phi = coordinates[random]
@@ -208,10 +229,10 @@ def eyesim_reset():
 
 # Register the environment with gymnasium and create an instance of it
 gym.register(
-    id="gymnasium_env/EyeSimEnv",
+    id="gymnasium_env/EyeSimCaroloEnv",
     entry_point=EyeSimEnv,
 )
-env = gym.make("gymnasium_env/EyeSimEnv")
+env = gym.make("gymnasium_env/EyeSimCaroloEnv")
 
 # train and test parameters
 learning_rate=0.0001
@@ -226,11 +247,15 @@ def test():
     env.reset()
 
     # Test the environment by taking random actions
-    episodes = 100
-    for ep in range(episodes):
+    while True:
+        LCDMenu("-", "-", "-", "STOP")
         action = env.action_space.sample()
         obs, reward, done, _, _= env.step(action)
-        print(f"Episode: {ep+1}, Action: {action}, Reward: {reward}")
+        print(f"Action: {action}")
+
+        key = KEYRead()
+        if key == KEY4: # Train the model
+            break
 
 # TRAIN ---------------------------------------------------------------------------------------------------------------
 
@@ -264,15 +289,20 @@ def load():
     model = PPO.load(model_path,env=env)
 
     # Test the loaded model by taking actions based on the model's predictions
-    episodes = 10
-    for ep in range(episodes):
-        obs, _ = env.reset()
-        done = False
-        while not done:
-            action, _ = model.predict(obs)
-            obs, reward, done, _, _ = env.step(action)
-            print(f"Episode: {ep+1}, Action: {action}, Reward: {reward}")
-    
+    done = False
+    obs, _ = env.reset()
+    while True:
+        if done:
+            obs, _ = env.reset()
+            done = False
+        LCDMenu("-", "-", "-", "STOP")
+        action, _ = model.predict(obs)
+        obs, reward, done, _, _ = env.step(action)
+        print(f"Reward: {reward}, Done: {done}")
+
+        key = KEYRead()
+        if key == KEY4: # Train the model
+            break
 # LOAD AND TRAIN --------------------------------------------------------------------------------------------------------
 
 # Function to load a pre-trained model and continue training it
@@ -286,8 +316,9 @@ def load_train():
     iterations = 10
     # Continue training the model
     for i in range(trained_model + 1, trained_model + 1 + iterations):
+        LCDMenu("-", "-", "-", "STOP")
         model.learn(total_timesteps=10000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-        model.save(f"{models_dir}/{i}")
+        model.save(f"{models_dir}/{i}")        
         
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
 
