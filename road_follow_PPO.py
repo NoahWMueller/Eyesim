@@ -28,11 +28,7 @@ DESIRED_CAMHEIGHT = 60
 algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
-<<<<<<< HEAD
 version = 1.2
-=======
-version = 1.1
->>>>>>> 5af5325861d62d284c1092e6b67b62876d7ee432
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}"
