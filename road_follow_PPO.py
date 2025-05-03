@@ -3,9 +3,7 @@
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
 import os
-from pydoc import cli
 import cv2
-import math
 import time
 from eye import *
 import numpy as np
