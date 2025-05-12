@@ -3,9 +3,7 @@
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
 import os
-from pydoc import cli
 import cv2
-import math
 import time
 from eye import *
 import numpy as np
@@ -13,8 +11,6 @@ import gymnasium as gym
 from random import randint
 from gymnasium import spaces
 from stable_baselines3 import PPO
-from stable_baselines3 import A2C
-from stable_baselines3 import DQN
 from stable_baselines3.common.env_checker import check_env
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
@@ -267,12 +263,11 @@ def train():
         os.makedirs(logdir)
 
     # Define the PPO model with the specified parameters
-    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps, learning_rate=learning_rate)
+    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate)
 
-    # Train the model for 10 iterations, each with 10,000 timesteps
-    for i in range(1,10):
-        model.learn(total_timesteps=10000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-        model.save(f"{models_dir}/{i}")
+    # Train the model for 100,000 steps
+    model.learn(total_timesteps=100000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+    model.save(f"{models_dir}")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 
