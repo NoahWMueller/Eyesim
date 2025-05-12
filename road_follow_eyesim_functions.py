@@ -3,7 +3,6 @@
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
 from random import randint
-import time
 import cv2
 from eye import *
 import numpy as np
