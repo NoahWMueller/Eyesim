@@ -123,7 +123,7 @@ class EyeSimEnv(gym.Env):
         if result2 > 0:
             # update previous polygon to current polygon and repeat 
             current_centroid += 1
-            current_centroid %= 34
+            current_centroid %= len(coordinates)
             update_polygon()
             return 1.0
         if result1 < 0 and result2 < 0: 
@@ -171,7 +171,7 @@ def update_polygon():
         flipped_left_lane_world_coordinates[(current_centroid*2+2)]
     ], np.int32)
 
-    next_centroid = (current_centroid + 1)% 34
+    next_centroid = (current_centroid + 1)% len(coordinates)
 
     next_polygon = np.array([
         flipped_left_lane_world_coordinates[next_centroid*2],
@@ -210,13 +210,13 @@ def eyesim_reset():
     # Stop robot movement
     VWSetSpeed(0,0)
 
-    # # Pick random position along the road to start
-    random = randint(0,len(coordinates)-1)
-    current_centroid = random
+    current_centroid = current_centroid%len(coordinates)-1
 
     # # Position the robot in the simulation
-    x,y,phi = coordinates[random]
+    x,y,phi = coordinates[current_centroid]
+
     SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
+
 # INITIALIZE ----------------------------------------------------------------------------------------------------------
 
 # Register the environment with gymnasium and create an instance of it

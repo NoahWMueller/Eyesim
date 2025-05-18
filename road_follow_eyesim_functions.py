@@ -13,9 +13,6 @@ CAMWIDTH = 160
 CAMHEIGHT = 120
 DESIRED_CAMHEIGHT = 60
 
-# Current polygon where the robot was placed
-current_polygon = 0
-
 # define the world coordinates for the left lane
 flipped_left_lane_world_coordinates = [
     (3990,400),(4000,733),(943,410),(962,733),(590,543),
@@ -44,6 +41,11 @@ coordinates = [
     (1752,3210,132),(1981,3438,153),(2343,3600,178),(2762,3581,-153),(3648,2829,-133),
     (4657,1686,-104),(4714,1257,-70),(4552,867,-42),(4248,629,-14)
 ]
+
+
+# Current polygon where the robot was placed
+current_polygon = randint(0,len(coordinates))
+
 
 # EYESIM FUNCTIONS --------------------------------------------------------------------------------------------------
 
@@ -105,12 +107,12 @@ def eyesim_reset():
     # Stop robot movement
     VWSetSpeed(0,0)
 
-    # # Pick random position along the road to start
-    random = randint(0,len(coordinates)-1)
-    current_polygon = random
+    current_polygon = current_polygon%len(coordinates)-1
 
+    
     # # Position the robot in the simulation
-    x,y,phi = coordinates[random]
+    x,y,phi = coordinates[current_polygon]
+
     SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
 
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
@@ -139,7 +141,7 @@ def main():
 
     while True:
         LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
-        LCDMenu("RESET", "DISTANCE", "-", "STOP")
+        LCDMenu("RESET", "POSITION", "-", "STOP")
 
         key = KEYRead()
 
