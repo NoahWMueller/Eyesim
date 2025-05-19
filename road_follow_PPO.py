@@ -252,7 +252,7 @@ def test():
         LCDMenu("-", "-", "-", "STOP")
         action = env.action_space.sample()
         obs, reward, done, _, _= env.step(action)
-        print(f"Action: {action}")
+        print(f"Reward: {reward}, Action: {action}, Done: {done}")
 
         key = KEYRead()
         if key == KEY4: # Train the model
@@ -285,7 +285,7 @@ def load():
 
     # Load the pre-trained model
     trained_model = "model_0"
-    model_path = f"{models_dir}/{trained_model}.zip"
+    model_path = f"{models_dir}/{trained_model}"
     model = PPO.load(model_path,env=env)
 
     # Test the loaded model by taking actions based on the model's predictions
@@ -313,7 +313,7 @@ def load_train():
 
     # Load the pre-trained model
     trained_model = "model_0"
-    model_path = f"{models_dir}/{trained_model}.zip"
+    model_path = f"{models_dir}/{trained_model}"
     model = PPO.load(model_path, env)
     
     # Continue training the model
