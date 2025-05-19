@@ -23,7 +23,7 @@ DESIRED_CAMHEIGHT = 60
 algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
-version = 1.3
+version = 1.2
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}"
@@ -225,6 +225,7 @@ def eyesim_reset():
     x,y,phi = centroids[current_centroid]
 
     SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
+    update_polygon()
 
 # INITIALIZE ----------------------------------------------------------------------------------------------------------
 
@@ -317,7 +318,7 @@ def load_train():
     model = PPO.load(model_path, env)
     
     # Continue training the model
-    i = 0
+    i = 1
     while True:
         LCDMenu("TRAIN", "-", "-", "STOP")
         key = KEYRead()
