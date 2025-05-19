@@ -29,12 +29,6 @@ version = 1.2
 models_dir = f"models/Carolo/{version}"
 logdir = f"logs/Carolo/{version}"
 
-# polygon positions
-current_polygon = np.array([])
-current_centroid = 0
-next_polygon = np.array([])
-next_centroid = 0
-
 # define the world centroids for the left lane
 left_lane = [
     (3990,400),(4000,733),(3562,400),(3571,733),(3171,400),
@@ -81,6 +75,12 @@ centroids = [
     (3781,2705,-129),(4143,2324,-127),(4419,2038,-126),(4657,1686,-104),(4714,1257,-70),
     (4552,867,-42),(4248,629,-14),
 ]
+
+# polygon positions
+current_polygon = np.array([])
+current_centroid = randint(0,len(centroids))
+next_polygon = np.array([])
+next_centroid = 0
 
 # ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
