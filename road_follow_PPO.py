@@ -123,7 +123,7 @@ class EyeSimEnv(gym.Env):
 
         # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
-        info = {}
+        info = {current_centroid}
 
         return observation, reward, done, truncated, info
 
@@ -252,8 +252,8 @@ def test():
     while True:
         LCDMenu("-", "-", "-", "STOP")
         action = env.action_space.sample()
-        obs, reward, done, _, _= env.step(action)
-        print(f"Reward: {reward}, Action: {action}, Done: {done}")
+        obs, reward, done, _, info= env.step(action)
+        print(f"Reward: {reward}, Action: {action}, Done: {done}, Info: {info}")
 
         key = KEYRead()
         if key == KEY4: # Train the model
@@ -298,8 +298,8 @@ def load():
             obs, _ = env.reset()
             done = False
         action, _ = model.predict(obs)
-        obs, reward, done, _, _ = env.step(action)
-        print(f"Reward: {reward}, Done: {done}")
+        obs, reward, done, _, info= env.step(action)
+        print(f"Reward: {reward}, Action: {action}, Done: {done}, Info: {info}")
 
         LCDMenu("-", "-", "-", "STOP")
         key = KEYRead()
@@ -361,7 +361,7 @@ def main():
         LCDMenu("TRAIN", "TEST", "LOAD", "STOP")
 
         key = KEYRead()
-        if key == KEY1: # Train the modelG", "-", "-", "STOP")
+        if key == KEY1: # Train the model
             train()
 
         elif key == KEY2: # Load a pre-trained model and test it
@@ -369,7 +369,7 @@ def main():
 
         elif key == KEY3: # Test the environment and the robot's performance
             while True:
-                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "STOP")
+                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "EXIT")
                 key = KEYRead()
                 if key == KEY1: # Load a pre-trained model and test it
                     load()
