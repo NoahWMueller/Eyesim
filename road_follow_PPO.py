@@ -123,7 +123,7 @@ class EyeSimEnv(gym.Env):
 
         # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
-        info = {current_centroid}
+        info = {"current_centroid": current_centroid}
 
         return observation, reward, done, truncated, info
 
@@ -313,20 +313,18 @@ def load():
 def load_train(): 
 
     # Load the pre-trained model
-    trained_model = "model_0"
+    trained_model = "model_2"
     model_path = f"{models_dir}/{trained_model}"
     model = PPO.load(model_path, env)
     
     # Continue training the model
-    i = 1
     while True:
         LCDMenu("TRAIN", "-", "-", "STOP")
         key = KEYRead()
         if key == KEY1: # Train the model
             model.learn(total_timesteps=50000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-            new_model = f"model_{i}"
+            new_model = f"model_3"
             model.save(f"{models_dir}/{new_model}")
-            i += 1
         elif key == KEY4:
             break
 
