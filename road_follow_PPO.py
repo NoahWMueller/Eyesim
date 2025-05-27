@@ -23,7 +23,7 @@ DESIRED_CAMHEIGHT = 60
 algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
-version = 1.2
+version = 1.3
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}"
@@ -123,7 +123,7 @@ class EyeSimEnv(gym.Env):
 
         # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
-        info = {}
+        info = {"current_centroid": current_centroid}
 
         return observation, reward, done, truncated, info
 
@@ -260,8 +260,8 @@ def test():
     while True:
         LCDMenu("-", "-", "-", "STOP")
         action = env.action_space.sample()
-        obs, reward, done, _, _= env.step(action)
-        print(f"Reward: {reward}, Action: {action}, Done: {done}")
+        obs, reward, done, _, info= env.step(action)
+        print(f"Reward: {reward}, Action: {action}, Done: {done}, Info: {info}")
 
         key = KEYRead()
         if key == KEY4: # Train the model
@@ -306,8 +306,8 @@ def load():
             obs, _ = env.reset()
             done = False
         action, _ = model.predict(obs)
-        obs, reward, done, _, _ = env.step(action)
-        print(f"Reward: {reward}, Done: {done}")
+        obs, reward, done, _, info= env.step(action)
+        print(f"Reward: {reward}, Action: {action}, Done: {done}, Info: {info}")
 
         LCDMenu("-", "-", "-", "STOP")
         key = KEYRead()
@@ -321,20 +321,18 @@ def load():
 def load_train(): 
 
     # Load the pre-trained model
-    trained_model = "model_0"
+    trained_model = "model_2"
     model_path = f"{models_dir}/{trained_model}"
     model = PPO.load(model_path, env)
     
     # Continue training the model
-    i = 1
     while True:
         LCDMenu("TRAIN", "-", "-", "STOP")
         key = KEYRead()
         if key == KEY1: # Train the model
             model.learn(total_timesteps=50000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-            new_model = f"model_{i}"
+            new_model = f"model_3"
             model.save(f"{models_dir}/{new_model}")
-            i += 1
         elif key == KEY4:
             break
 
@@ -369,7 +367,7 @@ def main():
         LCDMenu("TRAIN", "TEST", "LOAD", "STOP")
 
         key = KEYRead()
-        if key == KEY1: # Train the modelG", "-", "-", "STOP")
+        if key == KEY1: # Train the model
             train()
 
         elif key == KEY2: # Load a pre-trained model and test it
@@ -377,7 +375,7 @@ def main():
 
         elif key == KEY3: # Test the environment and the robot's performance
             while True:
-                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "STOP")
+                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "EXIT")
                 key = KEYRead()
                 if key == KEY1: # Load a pre-trained model and test it
                     load()
