@@ -116,7 +116,7 @@ class EyeSimEnv(gym.Env):
         observation = eyesim_get_observation()
 
         # Calculate reward based on position
-        reward = self.calculate_reward(result1, result2)
+        reward = {"driving_reward" : self.calculate_drive_reward(result1, result2), "speed_reward" : self.calculate_speed_reward(angular, linear)}
 
         # Determine if the episode is done
         done = self.is_done(result1,result2)
@@ -127,7 +127,7 @@ class EyeSimEnv(gym.Env):
 
         return observation, reward, done, truncated, info
 
-    def calculate_reward(self, result1, result2):
+    def calculate_drive_reward(self, result1, result2):
         global current_centroid
         if result2 > 0:
             # update previous polygon to current polygon and repeat 
@@ -139,6 +139,14 @@ class EyeSimEnv(gym.Env):
             return -1.0
         else:
             return 0.0
+
+    def calculate_speed_reward(self, angular, linear):
+        if angular > 0.5 or linear > 0.5:
+            return -1
+        elif angular < -0.5 or linear < -0.5:
+            return -1
+        else:
+            return 1
 
     def is_done(self, result1, result2):
         # Determine if the robot left all allowable polygons
