@@ -5,6 +5,7 @@
 import os
 import cv2
 import time
+import math
 from eye import *
 import numpy as np
 import gymnasium as gym
@@ -23,7 +24,7 @@ DESIRED_CAMHEIGHT = 60
 algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
-version = 1.3
+version = 1.4
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}"
@@ -81,6 +82,7 @@ current_polygon = np.array([])
 current_centroid = randint(0,len(centroids))
 next_polygon = np.array([])
 next_centroid = 0
+speed_limit = 1  # Speed limit for the robot, 1/100 of the limit
 
 # ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
@@ -93,7 +95,7 @@ class EyeSimEnv(gym.Env):
         low = np.array([-1.0, 0.0], dtype=np.float32)
         high = np.array([1.0, 1.0], dtype=np.float32)
 
-        self.action_space = spaces.Box(low=low, high=high, dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1 TODO include second value for linear speed
+        self.action_space = spaces.Box(low=low, high=high, dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1
         self.observation_space = spaces.Box(low=0, high=255, shape=(DESIRED_CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
 
     def reset(self, seed=None, options=None):
@@ -116,7 +118,7 @@ class EyeSimEnv(gym.Env):
         observation = eyesim_get_observation()
 
         # Calculate reward based on position
-        reward = {"driving_reward" : self.calculate_drive_reward(result1, result2), "speed_reward" : self.calculate_speed_reward(angular, linear)}
+        reward = self.calculate_drive_reward(result1, result2) + self.calculate_speed_reward(angular, linear)
 
         # Determine if the episode is done
         done = self.is_done(result1,result2)
@@ -134,19 +136,26 @@ class EyeSimEnv(gym.Env):
             current_centroid += 1
             current_centroid %= len(centroids)
             update_polygon()
-            return 1.0
+            return 5.0
         if result1 < 0 and result2 < 0: 
-            return -1.0
+            return -10.0
         else:
             return 0.0
 
     def calculate_speed_reward(self, angular, linear):
-        if angular > 0.5 or linear > 0.5:
-            return -1
-        elif angular < -0.5 or linear < -0.5:
-            return -1
+        global speed_limit
+        global current_centroid
+        if current_centroid < 30:
+            speed_limit = 0.8
         else:
-            return 1
+            speed_limit = 0.4
+
+        speed = math.sqrt(angular**2 + linear**2) # Calculate the speed of the robot
+        
+        if speed > speed_limit: # If the speed is too low, return a negative reward
+            return -1 * (speed - speed_limit)
+        else:
+            return 0.5
 
     def is_done(self, result1, result2):
         # Determine if the robot left all allowable polygons
