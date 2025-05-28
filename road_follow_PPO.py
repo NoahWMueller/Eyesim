@@ -18,7 +18,7 @@ from stable_baselines3 import PPO
 # Constants for camera settings
 CAMWIDTH = 160
 CAMHEIGHT = 120
-DESIRED_CAMHEIGHT = 60
+DESIRED_CAMHEIGHT = 120
 
 # Algorithm used for training
 algorithm = "PPO" 
@@ -30,7 +30,7 @@ version = 1.4
 models_dir = f"models/Carolo/{version}"
 logdir = f"logs/Carolo/{version}"
 
-# define the world centroids for the left lane
+# Left lane coordinates for the simulation environment
 left_lane = [
     (3990,400),(4000,733),(3562,400),(3571,733),(3171,400),
     (3171,733),(2838,400),(2848,733),(2448,400),(2448,733),
@@ -54,13 +54,13 @@ left_lane = [
     (1800,2476),(1476,2867),(1800,2857),(1581,3171),(1838,3029),
     (1743,3448),(2000,3238),(2124,3695),(2267,3400),(2590,3771),
     (2600,3448),(3095,3581),(2895,3343),(3371,3314),(3143,3086),
-    (3705,2981),(3457,2762),(4124,2524),(3905,2305),(4390,2257),
-    (4152,2048),(4695,1933),(4448,1724),(4876,1457),(4562,1400),
-    (4762,924),(4486,1086),(4486,600),(4267,819),(3990,400),
-    (4000,733),
+    (3705,2981),(3457,2762),(3933,2733),(3667,2524),(4124,2524),
+    (3905,2305),(4390,2257),(4152,2048),(4695,1933),(4448,1724),
+    (4876,1457),(4562,1400),(4762,924),(4486,1086),(4486,600),
+    (4267,819),(3990,400),(4000,733)
 ]
 
-# Define the world dimensions with required angle
+# Centroids of the polygons for the simulation environment
 centroids = [
     (3829,533,7),(3410,533,8),(3048,533,9),(2686,533,8),(2314,533,10),
     (1924,533,8),(1505,533,9),(1143,533,11),(848,571,30),(581,705,50),
@@ -73,18 +73,12 @@ centroids = [
     (3286,1876,-32),(3067,1648,-36),(2733,1419,-10),(2305,1381,21),(1895,1581,54),
     (1676,1905,81),(1619,2238,95),(1610,2629,97),(1638,2952,116),(1752,3210,132),
     (1981,3438,153),(2343,3600,178),(2762,3581,-153),(3124,3381,-126),(3410,3086,-129),
-    (3781,2705,-129),(4143,2324,-127),(4419,2038,-126),(4657,1686,-104),(4714,1257,-70),
-    (4552,867,-42),(4248,629,-14),
+    (3695,2790,-123),(3914,2562,-124),(4143,2324,-127),(4419,2038,-126),(4657,1686,-104),
+    (4714,1257,-70),(4552,867,-42),(4248,629,-14)
 ]
 
-# polygon positions
-current_polygon = np.array([])
-current_centroid = randint(0,len(centroids))
-next_polygon = np.array([])
-next_centroid = 0
-speed_limit = 1  # Speed limit for the robot, 1/100 of the limit
 
-# ENVIRONMENT --------------------------------------------------------------------------------------------------------
+# GYMNASIUNM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
 # Custom environment for the robot simulation using OpenAI Gymnasium
 class EyeSimEnv(gym.Env):
@@ -97,11 +91,20 @@ class EyeSimEnv(gym.Env):
 
         self.action_space = spaces.Box(low=low, high=high, dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1
         self.observation_space = spaces.Box(low=0, high=255, shape=(DESIRED_CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
+        
+        # Initialize variables
+        self.stop_reached = False
+        self.stop_time = time.time()
+        self.current_polygon = np.array([])
+        self.current_centroid = randint(0, len(centroids))
+        self.next_polygon = np.array([])
+        self.next_centroid = 0
+        self.speed_limit = 1.0  # Speed limit for the robot, 1/100 of the limit
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed, options=options)
-        eyesim_reset()
-        observation = eyesim_get_observation()
+        self.eyesim_reset()
+        observation = self.eyesim_get_observation()
         info = {}
         return observation, info
 
@@ -109,140 +112,155 @@ class EyeSimEnv(gym.Env):
         angular, linear = action[0], action[1] # linear and angular action
 
         # Determines if robot is inside left lane or has gotten lost
-        result1, result2 = eyesim_get_position() 
+        result1, result2 = self.eyesim_get_position() 
         
         # Set robot linear and angular speed based on action
-        eyesim_set_robot_speed(linear, angular) 
+        self.eyesim_set_robot_speed(linear, angular) 
 
         # Read image from camera
-        observation = eyesim_get_observation()
+        observation = self.eyesim_get_observation()
 
         # Calculate reward based on position
-        reward = self.calculate_drive_reward(result1, result2) + self.calculate_speed_reward(angular, linear)
+        drive_reward = self.calculate_drive_reward(result1, result2) # Calculate the drive reward based on the position
+        speed_reward = self.calculate_speed_reward(angular, linear) # Calculate the speed reward based on the speed
+        reward = drive_reward + speed_reward # Total reward is the sum of the drive and speed rewards
 
         # Determine if the episode is done
         done = self.is_done(result1,result2)
 
         # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
-        info = {"current_centroid": current_centroid}
+
+        # Create info dictionary to store additional information
+        info = {"Position_reward": drive_reward, "Speed_reward": speed_reward}
 
         return observation, reward, done, truncated, info
 
     def calculate_drive_reward(self, result1, result2):
-        global current_centroid
+        # If the robot is inside the next polygon, return a positive reward
         if result2 > 0:
             # update previous polygon to current polygon and repeat 
-            current_centroid += 1
-            current_centroid %= len(centroids)
-            update_polygon()
+            self.current_centroid += 1
+            self.current_centroid %= len(centroids)
+            self.update_polygon()
             return 5.0
+        # If the robot is inside neither  polygon, return a big negative reward
         if result1 < 0 and result2 < 0: 
             return -10.0
+        # If the robot is inside the current polygon, return no reward
         else:
             return 0.0
 
     def calculate_speed_reward(self, angular, linear):
-        global speed_limit
-        global current_centroid
-        if current_centroid < 30:
-            speed_limit = 0.8
-        else:
-            speed_limit = 0.4
+        # Calculate the speed of the robot based on the angular and linear speed
+        speed = math.sqrt(angular**2 + linear**2)
+        reward = 0.0
 
-        speed = math.sqrt(angular**2 + linear**2) # Calculate the speed of the robot
-        
-        if speed > speed_limit: # If the speed is too low, return a negative reward
-            return -1 * (speed - speed_limit)
+        # If the robot has reached a stop, check if it has been stopped for more than 3 seconds before resetting the stop flag
+        if self.stop_reached and time.time() - self.stop_time >= 3.0: 
+            self.stop_reached = False
+            self.stop_time = 0.0
+
+        # Speed limit logic
+        if 0 < self.current_centroid < 30:
+            self.speed_limit = 0.8
+        elif self.current_centroid == 55:
+            if not self.stop_reached:
+                self.speed_limit = 0.0
+                if speed == 0.0:
+                    self.stop_reached = True
+                    self.stop_time = time.time()
         else:
-            return 0.5
+            self.speed_limit = 0.5
+
+        # Smooth reward function: reward is higher when speed is close to target
+        speed_error = abs(speed - self.speed_limit)
+        max_reward = 1.0
+        reward = max_reward - speed_error * 2.0  # Linear penalty
+
+        # Clamp reward to avoid negative values if too far off
+        return reward
 
     def is_done(self, result1, result2):
         # Determine if the robot left all allowable polygons
         if result1 == -1 and result2 == -1: return True
         else: return False
 
-# EYESIM FUNCTIONS --------------------------------------------------------------------------------------------------
+    # INCLUDED EYESIM HELPER FUNCTIONS --------------------------------------------------------------------------------------------------
 
-# Function to set the speed of the robot based on the action taken
-def eyesim_set_robot_speed(linear, angular): 
-    # Set the speed of the robot based on the action taken
-    linear_speed = 100
-    angular_speed = 50
-    VWSetSpeed(round(linear_speed*linear),round(angular_speed*angular)) # Set the speed of the robot
-    time.sleep(0.25) # Wait for 0.25 seconds to allow the robot to move
-    VWSetSpeed(0,0) # Stop the robot
+    # Function to set the speed of the robot based on the action taken
+    def eyesim_set_robot_speed(self, linear, angular): 
+        # Set the speed of the robot based on the action taken
+        linear_speed = 100
+        angular_speed = 50
+        VWSetSpeed(round(linear_speed*linear),round(angular_speed*angular)) # Set the speed of the robot
 
-# Function to get the image from the camera and process it
-def eyesim_get_observation(): 
-    # Get image from camera
-    img = CAMGet() 
-
-    # Process image
-    processed_img = image_processing(img) 
-
-    # Optional: Display the processed image on the LCD screen
-    display_img = processed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
-
-    LCDImage(display_img)
-
-    return processed_img
-
-def update_polygon():
-    global current_polygon, next_polygon, next_centroid
-    current_polygon = np.array([
-        left_lane[current_centroid*2],
-        left_lane[current_centroid*2+1],
-        left_lane[(current_centroid*2+3)],
-        left_lane[(current_centroid*2+2)]
-    ], np.int32)
-
-    next_centroid = (current_centroid + 1)% len(centroids)
-
-    next_polygon = np.array([
-        left_lane[next_centroid*2],
-        left_lane[next_centroid*2+1],
-        left_lane[(next_centroid*2+3)],
-        left_lane[(next_centroid*2+2)]
-    ], np.int32)
-
-
-# Function to get the distance to the red peak
-def eyesim_get_position(): 
-    global current_polygon, next_polygon
-    [x,y,_,_] = SIMGetRobot(1)
-    point = (x.value, y.value)
+    # Function to get the image from the camera and process it
+    def eyesim_get_observation(self): 
+        # Get image from camera
+        img = CAMGet() 
     
-    update_polygon()
+        # Process image
+        processed_img = image_processing(img) 
 
-    # Reshape the polygon points
-    current_polygon = current_polygon.reshape((-1, 1, 2))
+        # Optional: Display the processed image on the LCD screen
+        display_img = processed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
 
-    # Reshape the polygon points
-    next_polygon = next_polygon.reshape((-1, 1, 2))
+        LCDImage(display_img)
 
-    # Check if the point is inside the polygon
-    current_result = cv2.pointPolygonTest(current_polygon, point, False)
+        return processed_img
 
-    # Check if the point is inside the polygon
-    next_result = cv2.pointPolygonTest(next_polygon, point, False)
+    def update_polygon(self):
+        # Update the current and next polygon based on the current centroid
+        self.current_polygon = np.array([
+            left_lane[self.current_centroid*2],
+            left_lane[self.current_centroid*2+1],
+            left_lane[(self.current_centroid*2+3)],
+            left_lane[(self.current_centroid*2+2)]
+        ], np.int32)
 
-    # If the point is inside the polygon return
-    return current_result, next_result
+        self.next_centroid = (self.current_centroid + 1)% len(centroids)
 
-# Function to reset the robot and can positions in the simulation
-def eyesim_reset(): 
-    global current_centroid
-    # Stop robot movement
-    VWSetSpeed(0,0)
+        self.next_polygon = np.array([
+            left_lane[self.next_centroid*2],
+            left_lane[self.next_centroid*2+1],
+            left_lane[(self.next_centroid*2+3)],
+            left_lane[(self.next_centroid*2+2)]
+        ], np.int32)
 
-    current_centroid = current_centroid%len(centroids)-1
 
-    # # Position the robot in the simulation
-    x,y,phi = centroids[current_centroid]
+    # Function to get the distance to the red peak
+    def eyesim_get_position(self): 
+        [x,y,_,_] = SIMGetRobot(1)
+        point = (x.value, y.value)
+        
+        self.update_polygon()
 
-    SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
-    update_polygon()
+        # Reshape the polygon points
+        self.current_polygon = self.current_polygon.reshape((-1, 1, 2))
+
+        # Reshape the polygon points
+        self.next_polygon = self.next_polygon.reshape((-1, 1, 2))
+
+        # Check if the point is inside the polygon
+        current_result = cv2.pointPolygonTest(self.current_polygon, point, False)
+
+        # Check if the point is inside the polygon
+        next_result = cv2.pointPolygonTest(self.next_polygon, point, False)
+
+        # If the point is inside the polygon return
+        return current_result, next_result
+
+    # Function to reset the robot and can positions in the simulation
+    def eyesim_reset(self): 
+        # Stop robot movement
+        VWSetSpeed(0,0)
+
+        # # Position the robot in the simulation
+        x,y,phi = centroids[self.current_centroid]
+
+        SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
+        self.update_polygon()
 
 # INITIALIZE ----------------------------------------------------------------------------------------------------------
 
@@ -253,9 +271,8 @@ gym.register(
 )
 env = gym.make("gymnasium_env/EyeSimCaroloEnv")
 
-# train and test parameters
+# Training parameters
 learning_rate=0.0001
-n_steps=128
 
 # TEST ----------------------------------------------------------------------------------------------------------------
 
