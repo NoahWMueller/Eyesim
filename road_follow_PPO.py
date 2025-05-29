@@ -18,13 +18,13 @@ from stable_baselines3 import PPO
 # Constants for camera settings
 CAMWIDTH = 160
 CAMHEIGHT = 120
-DESIRED_CAMHEIGHT = 120
+DESIRED_CAMHEIGHT = 60
 
 # Algorithm used for training
 algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
-version = 1.4
+version = 1.3
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}"
@@ -122,7 +122,7 @@ class EyeSimEnv(gym.Env):
 
         # Calculate reward based on position
         drive_reward = self.calculate_drive_reward(result1, result2) # Calculate the drive reward based on the position
-        speed_reward = self.calculate_speed_reward(angular, linear) # Calculate the speed reward based on the speed
+        speed_reward = self.calculate_speed_reward(linear) # Calculate the speed reward based on the speed
         reward = drive_reward + speed_reward # Total reward is the sum of the drive and speed rewards
 
         # Determine if the episode is done
@@ -132,7 +132,7 @@ class EyeSimEnv(gym.Env):
         truncated = False
 
         # Create info dictionary to store additional information
-        info = {"Position_reward": drive_reward, "Speed_reward": speed_reward}
+        info = {"Position_reward": drive_reward, "Speed_reward": speed_reward, "Stop_Reached": self.stop_reached, "Current_Centroid": self.current_centroid}
 
         return observation, reward, done, truncated, info
 
@@ -151,9 +151,9 @@ class EyeSimEnv(gym.Env):
         else:
             return 0.0
 
-    def calculate_speed_reward(self, angular, linear):
+    def calculate_speed_reward(self, linear):
         # Calculate the speed of the robot based on the angular and linear speed
-        speed = math.sqrt(angular**2 + linear**2)
+        speed = linear
         reward = 0.0
 
         # If the robot has reached a stop, check if it has been stopped for more than 3 seconds before resetting the stop flag
@@ -163,8 +163,8 @@ class EyeSimEnv(gym.Env):
 
         # Speed limit logic
         if 0 < self.current_centroid < 30:
-            self.speed_limit = 0.8
-        elif self.current_centroid == 55:
+            self.speed_limit = 0.75
+        elif self.current_centroid == 54:
             if not self.stop_reached:
                 self.speed_limit = 0.0
                 if speed == 0.0:
@@ -174,12 +174,15 @@ class EyeSimEnv(gym.Env):
             self.speed_limit = 0.5
 
         # Smooth reward function: reward is higher when speed is close to target
-        speed_error = abs(speed - self.speed_limit)
-        max_reward = 1.0
-        reward = max_reward - speed_error * 2.0  # Linear penalty
+        speed_error = speed - self.speed_limit
+        reward = 0.0
+        if speed_error < -0.05: # If the speed is lower than the speed limit with tolerance
+            reward = speed_error
+        elif speed_error > 0.05: # if the speed is greater than speed limit with tolerance
+            reward = -speed_error
+        else: reward = 0.5
 
-        # Clamp reward to avoid negative values if too far off
-        return reward
+        return round(reward,2)
 
     def is_done(self, result1, result2):
         # Determine if the robot left all allowable polygons
@@ -283,14 +286,33 @@ def test():
     env.reset()
 
     # Test the environment by taking random actions
+    action = [0,0]
+    _, _, _, _, info= env.step(action)
+    
+    current_centroid = info["Current_Centroid"]
     while True:
-        LCDMenu("-", "-", "-", "STOP")
-        action = env.action_space.sample()
-        obs, reward, done, _, info= env.step(action)
-        print(f"Reward: {reward}, Action: {action}, Done: {done}, Info: {info}")
-
+        LCDMenu("STOP_POS", "RANDOM", "-", "EXIT")
         key = KEYRead()
-        if key == KEY4: # Train the model
+        if key == KEY1:
+            while current_centroid != 53:
+                current_centroid+=1
+                x, y, phi = centroids[current_centroid]
+                SIMSetRobot(1,x,y,10,phi+180)
+                current_centroid%=(len(centroids)-1)
+                action = [0,0]
+                _, reward, done, _, info= env.step(action)
+        if key == KEY2:
+            while True:
+                action = env.action_space.sample()
+                _, reward, done, _, info= env.step(action)
+                print(f"Reward: {reward}, Action: {action}, Done: {done}, Info: {info}")
+                current_centroid = info["Current_Centroid"]
+                LCDMenu("-", "-", "-", "STOP")
+                key = KEYRead()
+                if key == KEY4: # Train the model
+                    VWSetSpeed(0,0)
+                    break
+        elif key == KEY4: # Train the model
             break
 
 # TRAIN ---------------------------------------------------------------------------------------------------------------

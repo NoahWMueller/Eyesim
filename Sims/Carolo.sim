@@ -1,19 +1,6 @@
 # Environment
 world Carolo.wld
 
-# Objects
-object /Objects/StopSign/stopsign.esObj
-StopSign 3700 3036 315
-StopSign 3680 2019 135
-
-object /Objects/SpeedLimitSign/10SpeedLimitSign.esObj
-10SpeedLimitSign 3664 4629 0
-10SpeedLimitSign 3515 1092 0
-
-object /Objects/SpeedLimitSign/SpeedLimitSign.esObj
-SpeedLimitSign 3515 360 180
-SpeedLimitSign 3664 3897 180
-
 # robotname x y phi
 S4 2800 4400 0
 
