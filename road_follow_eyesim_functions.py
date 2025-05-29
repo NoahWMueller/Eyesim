@@ -11,9 +11,9 @@ import numpy as np
 
 CAMWIDTH = 160
 CAMHEIGHT = 120
-DESIRED_CAMHEIGHT = 60
+DESIRED_CAMHEIGHT = 120
 
-# define the world centroids for the left lane
+# Left lane coordinates for the simulation environment
 left_lane = [
     (3990,400),(4000,733),(3562,400),(3571,733),(3171,400),
     (3171,733),(2838,400),(2848,733),(2448,400),(2448,733),
@@ -37,13 +37,13 @@ left_lane = [
     (1800,2476),(1476,2867),(1800,2857),(1581,3171),(1838,3029),
     (1743,3448),(2000,3238),(2124,3695),(2267,3400),(2590,3771),
     (2600,3448),(3095,3581),(2895,3343),(3371,3314),(3143,3086),
-    (3705,2981),(3457,2762),(4124,2524),(3905,2305),(4390,2257),
-    (4152,2048),(4695,1933),(4448,1724),(4876,1457),(4562,1400),
-    (4762,924),(4486,1086),(4486,600),(4267,819),(3990,400),
-    (4000,733),
+    (3705,2981),(3457,2762),(3933,2733),(3667,2524),(4124,2524),
+    (3905,2305),(4390,2257),(4152,2048),(4695,1933),(4448,1724),
+    (4876,1457),(4562,1400),(4762,924),(4486,1086),(4486,600),
+    (4267,819),(3990,400),(4000,733)
 ]
 
-# Define the world dimensions with required angle
+# Centroids of the polygons for the simulation environment
 centroids = [
     (3829,533,7),(3410,533,8),(3048,533,9),(2686,533,8),(2314,533,10),
     (1924,533,8),(1505,533,9),(1143,533,11),(848,571,30),(581,705,50),
@@ -56,14 +56,15 @@ centroids = [
     (3286,1876,-32),(3067,1648,-36),(2733,1419,-10),(2305,1381,21),(1895,1581,54),
     (1676,1905,81),(1619,2238,95),(1610,2629,97),(1638,2952,116),(1752,3210,132),
     (1981,3438,153),(2343,3600,178),(2762,3581,-153),(3124,3381,-126),(3410,3086,-129),
-    (3781,2705,-129),(4143,2324,-127),(4419,2038,-126),(4657,1686,-104),(4714,1257,-70),
-    (4552,867,-42),(4248,629,-14),
+    (3695,2790,-123),(3914,2562,-124),(4143,2324,-127),(4419,2038,-126),(4657,1686,-104),
+    (4714,1257,-70),(4552,867,-42),(4248,629,-14)
 ]
 
 
 # Current polygon where the robot was placed
-current_polygon = randint(0,len(centroids))
-
+current_centroid = randint(0,len(centroids))
+current_polygon = np.array([])
+next_polygon = np.array([])
 
 # EYESIM FUNCTIONS --------------------------------------------------------------------------------------------------
 
@@ -82,54 +83,60 @@ def eyesim_get_observation():
 
     return processed_img
 
+def update_polygon(current_centroid):
+    # Update the current and next polygon based on the current centroid
+    current_polygon = np.array([
+        left_lane[current_centroid*2],
+        left_lane[current_centroid*2+1],
+        left_lane[(current_centroid*2+3)],
+        left_lane[(current_centroid*2+2)]
+    ], np.int32)
+
+    next_centroid = (current_centroid + 1)% len(centroids)
+
+    next_polygon = np.array([
+        left_lane[next_centroid*2],
+        left_lane[next_centroid*2+1],
+        left_lane[(next_centroid*2+3)],
+        left_lane[(next_centroid*2+2)]
+    ], np.int32)
+
+    return current_polygon, next_polygon
+
 # Function to get the distance to the red peak
 def eyesim_get_position(): 
     [x,y,_,_] = SIMGetRobot(1)
     point = (x.value, y.value)
     result1,result2 = -1,-1
     
-    polygon = np.array([
-        left_lane[current_polygon*2],
-        left_lane[current_polygon*2+1],
-        left_lane[(current_polygon*2+3)%68],
-        left_lane[(current_polygon*2+2)%68]
-    ], np.int32)
-
-    next_polygon = current_polygon + 1
-
-    polygon_2 = np.array([
-        left_lane[next_polygon*2],
-        left_lane[next_polygon*2+1],
-        left_lane[(next_polygon*2+3)%68],
-        left_lane[(next_polygon*2+2)%68]
-    ], np.int32)
+    current_polygon, next_polygon = update_polygon(current_centroid)
 
     # Reshape the polygon points
-    polygon = polygon.reshape((-1, 1, 2))
+    current_polygon = current_polygon.reshape((-1, 1, 2))
 
     # Reshape the polygon points
-    polygon_2 = polygon_2.reshape((-1, 1, 2))
+    next_polygon = next_polygon.reshape((-1, 1, 2))
 
     # Check if the point is inside the polygon
-    result1 = cv2.pointPolygonTest(polygon, point, False)
+    result1 = cv2.pointPolygonTest(current_polygon, point, False)
 
     # Check if the point is inside the polygon
-    result2 = cv2.pointPolygonTest(polygon_2, point, False)
+    result2 = cv2.pointPolygonTest(next_polygon, point, False)
 
     # If the point is inside the polygon return
     return result1,result2
 
 # Function to reset the robot and can positions in the simulation
 def eyesim_reset(): 
-    global current_polygon
+    global current_centroid
     # Stop robot movement
     VWSetSpeed(0,0)
 
-    current_polygon = current_polygon%len(centroids)-1
+    current_centroid = current_centroid%len(centroids)-1
 
     
     # # Position the robot in the simulation
-    x,y,phi = centroids[current_polygon]
+    x,y,phi = centroids[current_centroid]
 
     SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
 
