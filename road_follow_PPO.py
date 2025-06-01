@@ -18,13 +18,13 @@ from stable_baselines3 import PPO
 # Constants for camera settings
 CAMWIDTH = 160
 CAMHEIGHT = 120
-DESIRED_CAMHEIGHT = 60
+DESIRED_CAMHEIGHT = 120
 
 # Algorithm used for training
 algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
-version = 1.3
+version = 1.4
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}"
@@ -123,7 +123,10 @@ class EyeSimEnv(gym.Env):
         # Calculate reward based on position
         drive_reward = self.calculate_drive_reward(result1, result2) # Calculate the drive reward based on the position
         speed_reward = self.calculate_speed_reward(linear) # Calculate the speed reward based on the speed
-        reward = drive_reward + speed_reward # Total reward is the sum of the drive and speed rewards
+        if drive_reward != -10.0: # If the robot is inside the next polygon, update the current centroid
+            reward = drive_reward + speed_reward # Total reward is the sum of the drive and speed rewards
+        else:
+            reward = drive_reward
 
         # Determine if the episode is done
         done = self.is_done(result1,result2)
@@ -175,14 +178,14 @@ class EyeSimEnv(gym.Env):
 
         # Smooth reward function: reward is higher when speed is close to target
         speed_error = speed - self.speed_limit
-        reward = 0.0
+        penalty = 0.0
         if speed_error < -0.05: # If the speed is lower than the speed limit with tolerance
-            reward = speed_error
+            penalty = speed_error
         elif speed_error > 0.05: # if the speed is greater than speed limit with tolerance
-            reward = -speed_error
-        else: reward = 0.5
+            penalty = -speed_error
+        reward = 1.0 + penalty
 
-        return round(reward,2)
+        return reward
 
     def is_done(self, result1, result2):
         # Determine if the robot left all allowable polygons
@@ -197,6 +200,8 @@ class EyeSimEnv(gym.Env):
         linear_speed = 100
         angular_speed = 50
         VWSetSpeed(round(linear_speed*linear),round(angular_speed*angular)) # Set the speed of the robot
+        time.sleep(0.1) # Sleep for a short time to allow the robot to move
+        VWSetSpeed(0,0)
 
     # Function to get the image from the camera and process it
     def eyesim_get_observation(self): 
@@ -263,6 +268,16 @@ class EyeSimEnv(gym.Env):
         x,y,phi = centroids[self.current_centroid]
 
         SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
+
+        # Reset object positions in the simulation if they have been moved
+        if SIMGetObject(2)[0].value != 3700 or SIMGetObject(2)[1].value != 3036 or SIMGetObject(2)[2].value != 315: SIMSetObject(2, 3700, 3036, 10, 315+90) # Set the first object position
+        if SIMGetObject(3)[0].value != 3680 or SIMGetObject(3)[1].value != 2019 or SIMGetObject(3)[2].value != 135: SIMSetObject(3, 3680, 2019, 10, 135+90) # Set the second object position        
+        if SIMGetObject(4)[0].value != 3664 or SIMGetObject(4)[1].value != 4629 or SIMGetObject(4)[2].value != 0: SIMSetObject(4, 3664, 4629, 10, 0) # Set the third object position
+        if SIMGetObject(5)[0].value != 3515 or SIMGetObject(5)[1].value != 1092 or SIMGetObject(5)[2].value != 0: SIMSetObject(5, 3515, 1092, 10, 0) # Set the fourth object position
+        if SIMGetObject(6)[0].value != 3515 or SIMGetObject(6)[1].value != 360 or SIMGetObject(6)[2].value != 180: SIMSetObject(6, 3515, 360, 10, 180) # Set the fifth object position
+        if SIMGetObject(7)[0].value != 3664 or SIMGetObject(7)[1].value != 3897 or SIMGetObject(7)[2].value != 180: SIMSetObject(7, 3664, 3897, 10, 180) # Set the sixth object position
+
+        # TODO include resetting object positions
         self.update_polygon()
 
 # INITIALIZE ----------------------------------------------------------------------------------------------------------
@@ -419,7 +434,18 @@ def main():
             train()
 
         elif key == KEY2: # Load a pre-trained model and test it
-            test()
+            while True:
+                LCDMenu("TEST", "OBJECT_POSITIONS", "RESET", "EXIT")
+                key = KEYRead()
+                if key == KEY1: # Load a pre-trained model and test it
+                    test()
+                elif key == KEY2: # Load a pre-trained model and continue training it
+                    for i in range(2,8):
+                        print((SIMGetObject(i)))
+                if key == KEY3: # Load a pre-trained model and test it
+                    env.reset()
+                elif key == KEY4: # Stop the program
+                    break 
 
         elif key == KEY3: # Test the environment and the robot's performance
             while True:
