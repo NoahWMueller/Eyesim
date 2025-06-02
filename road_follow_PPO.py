@@ -3,6 +3,7 @@
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
 import os
+import re
 import cv2
 import time
 import math
@@ -96,7 +97,7 @@ class EyeSimEnv(gym.Env):
         self.stop_reached = False
         self.stop_time = time.time()
         self.current_polygon = np.array([])
-        self.current_centroid = randint(0, len(centroids))
+        self.current_centroid = randint(0, len(centroids)-1)
         self.next_polygon = np.array([])
         self.next_centroid = 0
         self.speed_limit = 1.0  # Speed limit for the robot, 1/100 of the limit
@@ -177,13 +178,13 @@ class EyeSimEnv(gym.Env):
             self.speed_limit = 0.5
 
         # Smooth reward function: reward is higher when speed is close to target
-        speed_error = speed - self.speed_limit
+        speed_error = abs(speed - self.speed_limit)
         penalty = 0.0
-        if speed_error < -0.05: # If the speed is lower than the speed limit with tolerance
-            penalty = speed_error
-        elif speed_error > 0.05: # if the speed is greater than speed limit with tolerance
-            penalty = -speed_error
-        reward = 1.0 + penalty
+        if speed_error > 0.05 and speed_error <= 0.25: # If the speed is lower than the speed limit with tolerance
+            penalty = -speed_error * 2 # Penalty is proportional to the speed error
+        else:
+            penalty = -0.5
+        reward = 0.5 + penalty
 
         return reward
 
@@ -270,6 +271,7 @@ class EyeSimEnv(gym.Env):
         SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
 
         # Reset object positions in the simulation if they have been moved
+        # TODO move to seperate function to check even if the environment is not reset
         if SIMGetObject(2)[0].value != 3700 or SIMGetObject(2)[1].value != 3036 or SIMGetObject(2)[2].value != 315: SIMSetObject(2, 3700, 3036, 10, 315+90) # Set the first object position
         if SIMGetObject(3)[0].value != 3680 or SIMGetObject(3)[1].value != 2019 or SIMGetObject(3)[2].value != 135: SIMSetObject(3, 3680, 2019, 10, 135+90) # Set the second object position        
         if SIMGetObject(4)[0].value != 3664 or SIMGetObject(4)[1].value != 4629 or SIMGetObject(4)[2].value != 0: SIMSetObject(4, 3664, 4629, 10, 0) # Set the third object position
@@ -300,14 +302,16 @@ def test():
     # Reset the environment and check if it is valid
     env.reset()
 
-    # Test the environment by taking random actions
+    # Initialize the environment and retrieve starting centroid
     action = [0,0]
     _, _, _, _, info= env.step(action)
-    
     current_centroid = info["Current_Centroid"]
+
     while True:
         LCDMenu("STOP_POS", "RANDOM", "-", "EXIT")
         key = KEYRead()
+
+        # Move robot to the centroid position 53, which is the position before the stop sign
         if key == KEY1:
             while current_centroid != 53:
                 current_centroid+=1
@@ -316,18 +320,22 @@ def test():
                 current_centroid%=(len(centroids)-1)
                 action = [0,0]
                 _, reward, done, _, info= env.step(action)
+
+        # Test the environment by taking random actions
         if key == KEY2:
             while True:
                 action = env.action_space.sample()
                 _, reward, done, _, info= env.step(action)
                 print(f"Reward: {reward}, Action: {action}, Done: {done}, Info: {info}")
                 current_centroid = info["Current_Centroid"]
+
+                # Stop the random actions
                 LCDMenu("-", "-", "-", "STOP")
                 key = KEYRead()
-                if key == KEY4: # Train the model
+                if key == KEY4:
                     VWSetSpeed(0,0)
                     break
-        elif key == KEY4: # Train the model
+        elif key == KEY4:
             break
 
 # TRAIN ---------------------------------------------------------------------------------------------------------------
@@ -354,23 +362,85 @@ def train():
 
 # Function to load a pre-trained model and test it
 def load(): 
+    # Find the most recent model
+    result = find_latest_model()
+    if result is None:
+        return
+    most_recent_model, _ = result
+
 
     # Load the pre-trained model
-    trained_model = "model_0"
+    trained_model = most_recent_model
     model_path = f"{models_dir}/{trained_model}"
     model = PPO.load(model_path,env=env)
 
     # Test the loaded model by taking actions based on the model's predictions
     done = False
     obs, _ = env.reset()
+
+    # Initialize variables for speed and stop logic
+    current_speed = 0
+    current_reward = 0.0
+    iteration = 0
+    stop_reached = False
+    stop_time = 0.0
+    speed_limit = 0.0
+    total_iterations = 5
+
+    # Continue testing the loaded model until the user decides to stop
     while True:
-        
         if done:
             obs, _ = env.reset()
             done = False
         action, _ = model.predict(obs)
         obs, reward, done, _, info= env.step(action)
-        print(f"Reward: {reward}, Action: {action}, Done: {done}, Info: {info}")
+        
+        # Display the current action, reward, done status, and additional info
+        print(f"Reward:{reward}, Action: {action}, Done: {done}, Info: {info}")
+        
+        # Retrieve the current centroid from the info dictionary
+        current_centroid = info["Current_Centroid"]
+
+        # Gather reward and speed information to average out
+        if iteration < total_iterations:
+            iteration += 1
+            # Convert the speed to speed limit
+            current_speed += action[1] * 100 
+            current_reward += round(float(reward),2)
+
+        else:
+            # Clear the LCD area for speed display
+            LCDArea(0,DESIRED_CAMHEIGHT, CAMWIDTH, DESIRED_CAMHEIGHT*2, BLACK,1) 
+            
+            # Check if the robot has reached a stop and if it has been stopped for more than 3 seconds
+            if stop_reached and time.time() - stop_time >= 3.0: 
+                stop_reached = False
+                stop_time = 0.0
+            
+            # Speed limit logic
+            if 0 < current_centroid < 30:
+                speed_limit = 0.75
+            elif current_centroid == 54:
+                if not stop_reached:
+                    speed_limit = 0.0
+                    if action[1] == 0.0:
+                        stop_reached = True
+                        stop_time = time.time()
+            else:
+                speed_limit = 0.5
+            
+            # Display the speed limit and average speed on the LCD
+            LCDSetColor(RED,BLACK)
+            LCDSetPrintf(10,0, "Speed Limit: %d", int(speed_limit*100))
+            LCDSetColor(WHITE,BLACK)
+            LCDSetPrintf(12,0, "Average Speed: %d", int(current_speed/total_iterations))
+            LCDSetColor(WHITE,BLACK)
+            LCDSetPrintf(14,0, "Average Reward: %.2f", round((current_reward/total_iterations),2))
+            
+            # Reset the speed count and current speed for the next iteration
+            iteration = 0
+            current_speed = 0
+            current_reward = 0
 
         LCDMenu("-", "-", "-", "STOP")
         key = KEYRead()
@@ -380,12 +450,42 @@ def load():
 
 # LOAD AND TRAIN --------------------------------------------------------------------------------------------------------
 
+def find_latest_model():
+    previous_models = os.listdir(models_dir)
+
+    # Filter only files matching pattern like model_123.zip
+    model_files = [f for f in previous_models if re.match(r"model_\d+\.zip", f)]
+
+    # Extract the number and find the model with the highest number
+    def extract_model_number(filename):
+        match = re.search(r"model_(\d+)\.zip", filename)
+        return int(match.group(1)) if match else -1
+
+    # Sort models by number
+    model_files.sort(key=extract_model_number)
+
+    # Get the most recent model
+    most_recent_model = model_files[-1] if model_files else "None"
+    iteration = (int(most_recent_model.split("_")[1].split(".")[0]) + 1) if most_recent_model else 0
+
+    # If no pre-trained model is found, print a message and return
+    if iteration == 0 or most_recent_model == "None":
+        print("No pre-trained model found. Please train a model first.")
+        return None
+    
+    return most_recent_model, iteration
+    
 # Function to load a pre-trained model and continue training it
 def load_train(): 
 
+    # Find the most recent model
+    result = find_latest_model()
+    if result is None:
+        return
+    most_recent_model, iteration = result
+
     # Load the pre-trained model
-    trained_model = "model_2"
-    model_path = f"{models_dir}/{trained_model}"
+    model_path = f"{models_dir}/{most_recent_model}"
     model = PPO.load(model_path, env)
     
     # Continue training the model
@@ -393,9 +493,10 @@ def load_train():
         LCDMenu("TRAIN", "-", "-", "STOP")
         key = KEYRead()
         if key == KEY1: # Train the model
-            model.learn(total_timesteps=50000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-            new_model = f"model_3"
+            model.learn(total_timesteps=25000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+            new_model = f"model_{iteration}"
             model.save(f"{models_dir}/{new_model}")
+            iteration += 1
         elif key == KEY4:
             break
 
