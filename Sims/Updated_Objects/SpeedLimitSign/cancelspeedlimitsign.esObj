@@ -1,0 +1,22 @@
+# EyeSim Object File
+
+# Path to .obj file
+obj CancelSpeedLimit.obj
+
+# Object name
+name CancelSpeedLimitSign
+
+# Scale
+scale 0.03
+
+# Mass properties: mass of object, followed by centre of mass
+# mass kg x y z
+mass 2  0 0 0
+
+# collider box <Vector3 centre> <Vector3 size>
+# collider capsule <Vector3 centre> <radius> <height> <x|y|z>
+# collider sphere <Vector3 centre> <radius>
+collider capsule 0 7500 0  150 14200 y
+
+# buoyancy <volume>
+buoyancy 0

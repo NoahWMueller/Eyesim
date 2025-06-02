@@ -6,7 +6,6 @@ import os
 import re
 import cv2
 import time
-import math
 from eye import *
 import numpy as np
 import gymnasium as gym
@@ -25,7 +24,7 @@ DESIRED_CAMHEIGHT = 120
 algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
-version = 1.4
+version = 1.5
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}"
@@ -55,10 +54,11 @@ left_lane = [
     (1800,2476),(1476,2867),(1800,2857),(1581,3171),(1838,3029),
     (1743,3448),(2000,3238),(2124,3695),(2267,3400),(2590,3771),
     (2600,3448),(3095,3581),(2895,3343),(3371,3314),(3143,3086),
-    (3705,2981),(3457,2762),(3933,2733),(3667,2524),(4124,2524),
-    (3905,2305),(4390,2257),(4152,2048),(4695,1933),(4448,1724),
-    (4876,1457),(4562,1400),(4762,924),(4486,1086),(4486,600),
-    (4267,819),(3990,400),(4000,733)
+    (3610,3086),(3352,2867),(3705,2981),(3457,2762),(3933,2733),
+    (3667,2524),(4124,2524),(3905,2305),(4390,2257),(4152,2048),
+    (4695,1933),(4448,1724),(4876,1457),(4562,1400),(4762,924),
+    (4486,1086),(4486,600),(4267,819),(3990,400),(4000,733)
+
 ]
 
 # Centroids of the polygons for the simulation environment
@@ -73,11 +73,12 @@ centroids = [
     (4400,2924,-33),(4171,2714,-27),(3952,2533,-34),(3714,2305,-35),(3495,2076,-32),
     (3286,1876,-32),(3067,1648,-36),(2733,1419,-10),(2305,1381,21),(1895,1581,54),
     (1676,1905,81),(1619,2238,95),(1610,2629,97),(1638,2952,116),(1752,3210,132),
-    (1981,3438,153),(2343,3600,178),(2762,3581,-153),(3124,3381,-126),(3410,3086,-129),
-    (3695,2790,-123),(3914,2562,-124),(4143,2324,-127),(4419,2038,-126),(4657,1686,-104),
-    (4714,1257,-70),(4552,867,-42),(4248,629,-14)
+    (1981,3438,153),(2343,3600,178),(2762,3581,-153),(3124,3381,-126),(3371,3133,-125),
+    (3552,2952,-109),(3695,2790,-123),(3914,2562,-124),(4143,2324,-127),(4419,2038,-126),
+    (4657,1686,-104),(4714,1257,-70),(4552,867,-42),(4248,629,-14)
 ]
 
+stop_centroid = 55
 
 # GYMNASIUNM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
@@ -168,7 +169,7 @@ class EyeSimEnv(gym.Env):
         # Speed limit logic
         if 0 < self.current_centroid < 30:
             self.speed_limit = 0.75
-        elif self.current_centroid == 54:
+        elif self.current_centroid == stop_centroid:
             if not self.stop_reached:
                 self.speed_limit = 0.0
                 if speed == 0.0:
@@ -293,6 +294,7 @@ env = gym.make("gymnasium_env/EyeSimCaroloEnv")
 
 # Training parameters
 learning_rate=0.0001
+n_steps=2048
 
 # TEST ----------------------------------------------------------------------------------------------------------------
 
@@ -313,7 +315,7 @@ def test():
 
         # Move robot to the centroid position 53, which is the position before the stop sign
         if key == KEY1:
-            while current_centroid != 53:
+            while current_centroid != stop_centroid-1:
                 current_centroid+=1
                 x, y, phi = centroids[current_centroid]
                 SIMSetRobot(1,x,y,10,phi+180)
@@ -352,10 +354,10 @@ def train():
         os.makedirs(logdir)
 
     # Define the PPO model with the specified parameters
-    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate)
+    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate,n_steps=n_steps)
 
     # Train the model for 100,000 steps
-    model.learn(total_timesteps=100000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+    model.learn(total_timesteps=n_steps*50, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
     model.save(f"{models_dir}/model_0")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
@@ -368,6 +370,7 @@ def load():
         return
     most_recent_model, _ = result
 
+    print(f"Loading model: {most_recent_model}")
 
     # Load the pre-trained model
     trained_model = most_recent_model
@@ -418,9 +421,9 @@ def load():
                 stop_time = 0.0
             
             # Speed limit logic
-            if 0 < current_centroid < 30:
+            if 0 < current_centroid < 29:
                 speed_limit = 0.75
-            elif current_centroid == 54:
+            elif current_centroid == stop_centroid:
                 if not stop_reached:
                     speed_limit = 0.0
                     if action[1] == 0.0:
@@ -484,16 +487,18 @@ def load_train():
         return
     most_recent_model, iteration = result
 
+    print(f"Loading model: {most_recent_model} for further training with iteration {iteration}")
+
     # Load the pre-trained model
     model_path = f"{models_dir}/{most_recent_model}"
-    model = PPO.load(model_path, env)
+    model = PPO.load(model_path, env = env, learning_rate = learning_rate, n_steps = n_steps, tensorboard_log = logdir)
     
     # Continue training the model
     while True:
         LCDMenu("TRAIN", "-", "-", "STOP")
         key = KEYRead()
         if key == KEY1: # Train the model
-            model.learn(total_timesteps=25000, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+            model.learn(total_timesteps = n_steps*25, progress_bar = True, reset_num_timesteps = False, tb_log_name = f"{algorithm}")
             new_model = f"model_{iteration}"
             model.save(f"{models_dir}/{new_model}")
             iteration += 1
