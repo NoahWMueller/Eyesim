@@ -80,6 +80,13 @@ centroids = [
 
 stop_centroid = 55
 
+StopSign1 = (3722,3129,315)
+StopSign2 = (3679,1994,135)
+SpeedLimit10Sign1 = (3182,4713,0)
+SpeedLimit10Sign2 = (3178,1153,0)
+SpeedLimitSign1 = (3178,285,180)
+SpeedLimitSign2 = (3182,3825,180)
+
 # GYMNASIUNM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
 # Custom environment for the robot simulation using OpenAI Gymnasium
@@ -111,6 +118,8 @@ class EyeSimEnv(gym.Env):
         return observation, info
 
     def step(self, action):
+        self.object_check() # Check if the objects are in the correct position
+
         angular, linear = action[0], action[1] # linear and angular action
 
         # Determines if robot is inside left lane or has gotten lost
@@ -159,7 +168,6 @@ class EyeSimEnv(gym.Env):
     def calculate_speed_reward(self, linear):
         # Calculate the speed of the robot based on the angular and linear speed
         speed = linear
-        reward = 0.0
 
         # If the robot has reached a stop, check if it has been stopped for more than 3 seconds before resetting the stop flag
         if self.stop_reached and time.time() - self.stop_time >= 3.0: 
@@ -167,7 +175,7 @@ class EyeSimEnv(gym.Env):
             self.stop_time = 0.0
 
         # Speed limit logic
-        if 0 < self.current_centroid < 30:
+        if 0 < self.current_centroid < 26:
             self.speed_limit = 0.75
         elif self.current_centroid == stop_centroid:
             if not self.stop_reached:
@@ -181,13 +189,12 @@ class EyeSimEnv(gym.Env):
         # Smooth reward function: reward is higher when speed is close to target
         speed_error = abs(speed - self.speed_limit)
         penalty = 0.0
-        if speed_error > 0.05 and speed_error <= 0.25: # If the speed is lower than the speed limit with tolerance
-            penalty = -speed_error * 2 # Penalty is proportional to the speed error
-        else:
-            penalty = -0.5
-        reward = 0.5 + penalty
+        if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
+            penalty = -speed_error # Penalty is proportional to the speed error
+        elif speed_error > 0.2: # If the speed is higher than the speed limit with tolerance
+            penalty = -speed_error
 
-        return reward
+        return 0.2 + penalty # Return the speed reward, which is 0.2 plus the penaltys
 
     def is_done(self, result1, result2):
         # Determine if the robot left all allowable polygons
@@ -265,23 +272,21 @@ class EyeSimEnv(gym.Env):
     def eyesim_reset(self): 
         # Stop robot movement
         VWSetSpeed(0,0)
-
+        self.current_centroid -= 1
         # # Position the robot in the simulation
         x,y,phi = centroids[self.current_centroid]
 
         SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
 
-        # Reset object positions in the simulation if they have been moved
-        # TODO move to seperate function to check even if the environment is not reset
-        if SIMGetObject(2)[0].value != 3700 or SIMGetObject(2)[1].value != 3036 or SIMGetObject(2)[2].value != 315: SIMSetObject(2, 3700, 3036, 10, 315+90) # Set the first object position
-        if SIMGetObject(3)[0].value != 3680 or SIMGetObject(3)[1].value != 2019 or SIMGetObject(3)[2].value != 135: SIMSetObject(3, 3680, 2019, 10, 135+90) # Set the second object position        
-        if SIMGetObject(4)[0].value != 3664 or SIMGetObject(4)[1].value != 4629 or SIMGetObject(4)[2].value != 0: SIMSetObject(4, 3664, 4629, 10, 0) # Set the third object position
-        if SIMGetObject(5)[0].value != 3515 or SIMGetObject(5)[1].value != 1092 or SIMGetObject(5)[2].value != 0: SIMSetObject(5, 3515, 1092, 10, 0) # Set the fourth object position
-        if SIMGetObject(6)[0].value != 3515 or SIMGetObject(6)[1].value != 360 or SIMGetObject(6)[2].value != 180: SIMSetObject(6, 3515, 360, 10, 180) # Set the fifth object position
-        if SIMGetObject(7)[0].value != 3664 or SIMGetObject(7)[1].value != 3897 or SIMGetObject(7)[2].value != 180: SIMSetObject(7, 3664, 3897, 10, 180) # Set the sixth object position
-
-        # TODO include resetting object positions
         self.update_polygon()
+    
+    def object_check(self):
+        if SIMGetObject(2)[0].value != StopSign1[0] or SIMGetObject(2)[1].value != StopSign1[1] or SIMGetObject(2)[2].value != StopSign1[2]: SIMSetObject(2, StopSign1[0], StopSign1[1], 10, StopSign1[2]+90) # Set the stop sign position
+        if SIMGetObject(3)[0].value != StopSign2[0] or SIMGetObject(3)[1].value != StopSign2[1] or SIMGetObject(3)[2].value != StopSign2[2]: SIMSetObject(3, StopSign2[0], StopSign2[1], 10, StopSign2[2]+90) # Set the stop sign position
+        if SIMGetObject(4)[0].value != SpeedLimit10Sign1[0] or SIMGetObject(4)[1].value != SpeedLimit10Sign1[1] or SIMGetObject(4)[2].value != SpeedLimit10Sign1[2]: SIMSetObject(4, SpeedLimit10Sign1[0], SpeedLimit10Sign1[1], 10, SpeedLimit10Sign1[2]) # Set the first speed limit sign position
+        if SIMGetObject(5)[0].value != SpeedLimit10Sign2[0] or SIMGetObject(5)[1].value != SpeedLimit10Sign2[1] or SIMGetObject(5)[2].value != SpeedLimit10Sign2[2]: SIMSetObject(5, SpeedLimit10Sign2[0], SpeedLimit10Sign2[1], 10, SpeedLimit10Sign2[2]) # Set the second speed limit sign position
+        if SIMGetObject(6)[0].value != SpeedLimitSign1[0] or SIMGetObject(6)[1].value != SpeedLimitSign1[1] or SIMGetObject(6)[2].value != SpeedLimitSign1[2]: SIMSetObject(6, SpeedLimitSign1[0], SpeedLimitSign1[1], 10, SpeedLimitSign1[2]) # Set the first speed limit sign position
+        if SIMGetObject(7)[0].value != SpeedLimitSign2[0] or SIMGetObject(7)[1].value != SpeedLimitSign2[1] or SIMGetObject(7)[2].value != SpeedLimitSign2[2]: SIMSetObject(7, SpeedLimitSign2[0], SpeedLimitSign2[1], 10, SpeedLimitSign2[2]) # Set the second speed limit sign position
 
 # INITIALIZE ----------------------------------------------------------------------------------------------------------
 
@@ -354,7 +359,7 @@ def train():
         os.makedirs(logdir)
 
     # Define the PPO model with the specified parameters
-    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate,n_steps=n_steps)
+    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate)
 
     # Train the model for 100,000 steps
     model.learn(total_timesteps=n_steps*50, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
