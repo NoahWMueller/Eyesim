@@ -10,7 +10,6 @@ from eye import *
 import numpy as np
 import gymnasium as gym
 from random import randint
-from gymnasium import spaces
 from stable_baselines3 import PPO
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
@@ -18,10 +17,6 @@ from stable_baselines3 import PPO
 # Constants for camera settings
 CAMWIDTH = 160
 CAMHEIGHT = 120
-DESIRED_CAMHEIGHT = 120
-
-# Algorithm used for training
-algorithm = "PPO" 
 
 # Current version of the code for saving models and logs
 version = 1.5
@@ -29,6 +24,14 @@ version = 1.5
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}"
 logdir = f"logs/Carolo/{version}"
+
+# Algorithm used for training
+algorithm = "PPO" 
+policy_network = "CnnPolicy" # Policy network used for training
+
+# Training parameters
+learning_rate=0.0001
+n_steps=2048
 
 # Left lane coordinates for the simulation environment
 left_lane = [
@@ -78,8 +81,10 @@ centroids = [
     (4657,1686,-104),(4714,1257,-70),(4552,867,-42),(4248,629,-14)
 ]
 
+# Stop centroid index
 stop_centroid = 55
 
+# Sign simulator positions
 StopSign1 = (3722,3129,315)
 StopSign2 = (3679,1994,135)
 SpeedLimit10Sign1 = (3182,4713,0)
@@ -87,7 +92,8 @@ SpeedLimit10Sign2 = (3178,1153,0)
 SpeedLimitSign1 = (3178,285,180)
 SpeedLimitSign2 = (3182,3825,180)
 
-# GYMNASIUNM ENVIRONMENT --------------------------------------------------------------------------------------------------------
+
+# GYMNASIUM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
 # Custom environment for the robot simulation using OpenAI Gymnasium
 class EyeSimEnv(gym.Env):
@@ -98,8 +104,8 @@ class EyeSimEnv(gym.Env):
         low = np.array([-1.0, 0.0], dtype=np.float32)
         high = np.array([1.0, 1.0], dtype=np.float32)
 
-        self.action_space = spaces.Box(low=low, high=high, dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1
-        self.observation_space = spaces.Box(low=0, high=255, shape=(DESIRED_CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
+        self.action_space = gym.spaces.Box(low=low, high=high, dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1
+        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
         
         # Initialize variables
         self.stop_reached = False
@@ -110,7 +116,7 @@ class EyeSimEnv(gym.Env):
         self.next_centroid = 0
         self.speed_limit = 1.0  # Speed limit for the robot, 1/100 of the limit
 
-    def reset(self, seed=None, options=None):
+    def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
         self.eyesim_reset()
         observation = self.eyesim_get_observation()
@@ -118,7 +124,7 @@ class EyeSimEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        self.object_check() # Check if the objects are in the correct position
+        object_check() # Check if the objects are in the correct position
 
         angular, linear = action[0], action[1] # linear and angular action
 
@@ -183,6 +189,8 @@ class EyeSimEnv(gym.Env):
                 if speed == 0.0:
                     self.stop_reached = True
                     self.stop_time = time.time()
+            else:
+                self.speed_limit = 0.5
         else:
             self.speed_limit = 0.5
 
@@ -272,34 +280,46 @@ class EyeSimEnv(gym.Env):
     def eyesim_reset(self): 
         # Stop robot movement
         VWSetSpeed(0,0)
-        self.current_centroid -= 1
+        if self.current_centroid == 0:
+            self.current_centroid = len(centroids)-1 # If the current centroid is 0, set it to the last centroid
+        else:
+            self.current_centroid -= 1
         # # Position the robot in the simulation
         x,y,phi = centroids[self.current_centroid]
 
         SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
 
         self.update_polygon()
-    
-    def object_check(self):
-        if SIMGetObject(2)[0].value != StopSign1[0] or SIMGetObject(2)[1].value != StopSign1[1] or SIMGetObject(2)[2].value != StopSign1[2]: SIMSetObject(2, StopSign1[0], StopSign1[1], 10, StopSign1[2]+90) # Set the stop sign position
-        if SIMGetObject(3)[0].value != StopSign2[0] or SIMGetObject(3)[1].value != StopSign2[1] or SIMGetObject(3)[2].value != StopSign2[2]: SIMSetObject(3, StopSign2[0], StopSign2[1], 10, StopSign2[2]+90) # Set the stop sign position
-        if SIMGetObject(4)[0].value != SpeedLimit10Sign1[0] or SIMGetObject(4)[1].value != SpeedLimit10Sign1[1] or SIMGetObject(4)[2].value != SpeedLimit10Sign1[2]: SIMSetObject(4, SpeedLimit10Sign1[0], SpeedLimit10Sign1[1], 10, SpeedLimit10Sign1[2]) # Set the first speed limit sign position
-        if SIMGetObject(5)[0].value != SpeedLimit10Sign2[0] or SIMGetObject(5)[1].value != SpeedLimit10Sign2[1] or SIMGetObject(5)[2].value != SpeedLimit10Sign2[2]: SIMSetObject(5, SpeedLimit10Sign2[0], SpeedLimit10Sign2[1], 10, SpeedLimit10Sign2[2]) # Set the second speed limit sign position
-        if SIMGetObject(6)[0].value != SpeedLimitSign1[0] or SIMGetObject(6)[1].value != SpeedLimitSign1[1] or SIMGetObject(6)[2].value != SpeedLimitSign1[2]: SIMSetObject(6, SpeedLimitSign1[0], SpeedLimitSign1[1], 10, SpeedLimitSign1[2]) # Set the first speed limit sign position
-        if SIMGetObject(7)[0].value != SpeedLimitSign2[0] or SIMGetObject(7)[1].value != SpeedLimitSign2[1] or SIMGetObject(7)[2].value != SpeedLimitSign2[2]: SIMSetObject(7, SpeedLimitSign2[0], SpeedLimitSign2[1], 10, SpeedLimitSign2[2]) # Set the second speed limit sign position
 
-# INITIALIZE ----------------------------------------------------------------------------------------------------------
+# ADDITIONAL HELPER FUNCTIONS -------------------------------------------------------------------------------------------------
+
+# Function to check if the objects are in the correct position and set them if not
+def object_check():
+    if SIMGetObject(2)[0].value != StopSign1[0] or SIMGetObject(2)[1].value != StopSign1[1] or SIMGetObject(2)[2].value != StopSign1[2]: 
+        SIMSetObject(2, StopSign1[0], StopSign1[1], 10, StopSign1[2]+90)
+    if SIMGetObject(3)[0].value != StopSign2[0] or SIMGetObject(3)[1].value != StopSign2[1] or SIMGetObject(3)[2].value != StopSign2[2]: 
+        SIMSetObject(3, StopSign2[0], StopSign2[1], 10, StopSign2[2]+90)
+    if SIMGetObject(4)[0].value != SpeedLimit10Sign1[0] or SIMGetObject(4)[1].value != SpeedLimit10Sign1[1] or SIMGetObject(4)[2].value != SpeedLimit10Sign1[2]: 
+        SIMSetObject(4, SpeedLimit10Sign1[0], SpeedLimit10Sign1[1], 10, SpeedLimit10Sign1[2])
+    if SIMGetObject(5)[0].value != SpeedLimit10Sign2[0] or SIMGetObject(5)[1].value != SpeedLimit10Sign2[1] or SIMGetObject(5)[2].value != SpeedLimit10Sign2[2]: 
+        SIMSetObject(5, SpeedLimit10Sign2[0], SpeedLimit10Sign2[1], 10, SpeedLimit10Sign2[2])
+    if SIMGetObject(6)[0].value != SpeedLimitSign1[0] or SIMGetObject(6)[1].value != SpeedLimitSign1[1] or SIMGetObject(6)[2].value != SpeedLimitSign1[2]: 
+        SIMSetObject(6, SpeedLimitSign1[0], SpeedLimitSign1[1], 10, SpeedLimitSign1[2])
+    if SIMGetObject(7)[0].value != SpeedLimitSign2[0] or SIMGetObject(7)[1].value != SpeedLimitSign2[1] or SIMGetObject(7)[2].value != SpeedLimitSign2[2]: 
+        SIMSetObject(7, SpeedLimitSign2[0], SpeedLimitSign2[1], 10, SpeedLimitSign2[2])
+
+# INITIALIZE ----------------------------------------------------------------------------------------------------------------
 
 # Register the environment with gymnasium and create an instance of it
-gym.register(
-    id="gymnasium_env/EyeSimCaroloEnv",
-    entry_point=EyeSimEnv,
-)
-env = gym.make("gymnasium_env/EyeSimCaroloEnv")
+env_id = "gymnasium_env/EyeSimCaroloEnv"
 
-# Training parameters
-learning_rate=0.0001
-n_steps=2048
+if env_id not in gym.registry:
+    gym.register(
+        id=env_id,
+        entry_point="road_follow_PPO:EyeSimEnv",
+    )
+
+env = gym.make(env_id)
 
 # TEST ----------------------------------------------------------------------------------------------------------------
 
@@ -315,21 +335,11 @@ def test():
     current_centroid = info["Current_Centroid"]
 
     while True:
-        LCDMenu("STOP_POS", "RANDOM", "-", "EXIT")
+        LCDMenu("TEST_ENV", "STOP_POS", "-", "BACK")
         key = KEYRead()
 
-        # Move robot to the centroid position 53, which is the position before the stop sign
-        if key == KEY1:
-            while current_centroid != stop_centroid-1:
-                current_centroid+=1
-                x, y, phi = centroids[current_centroid]
-                SIMSetRobot(1,x,y,10,phi+180)
-                current_centroid%=(len(centroids)-1)
-                action = [0,0]
-                _, reward, done, _, info= env.step(action)
-
         # Test the environment by taking random actions
-        if key == KEY2:
+        if key == KEY1:
             while True:
                 action = env.action_space.sample()
                 _, reward, done, _, info= env.step(action)
@@ -342,6 +352,18 @@ def test():
                 if key == KEY4:
                     VWSetSpeed(0,0)
                     break
+
+        # Move robot to the centroid position 53, which is the position before the stop sign
+        if key == KEY2:
+            while current_centroid != stop_centroid-1:
+                current_centroid+=1
+                x, y, phi = centroids[current_centroid]
+                SIMSetRobot(1,x,y,10,phi+180)
+                current_centroid%=(len(centroids)-1)
+                action = [0,0]
+                _, reward, done, _, info= env.step(action)
+
+
         elif key == KEY4:
             break
 
@@ -359,16 +381,16 @@ def train():
         os.makedirs(logdir)
 
     # Define the PPO model with the specified parameters
-    model = PPO("CnnPolicy", env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate)
+    model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps)
 
     # Train the model for 100,000 steps
-    model.learn(total_timesteps=n_steps*50, progress_bar = True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+    model.learn(total_timesteps=50*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
     model.save(f"{models_dir}/model_0")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 
 # Function to load a pre-trained model and test it
-def load(): 
+def load_test(): 
     # Find the most recent model
     result = find_latest_model()
     if result is None:
@@ -380,7 +402,7 @@ def load():
     # Load the pre-trained model
     trained_model = most_recent_model
     model_path = f"{models_dir}/{trained_model}"
-    model = PPO.load(model_path,env=env)
+    model = PPO.load(model_path, env=env)
 
     # Test the loaded model by taking actions based on the model's predictions
     done = False
@@ -418,7 +440,7 @@ def load():
 
         else:
             # Clear the LCD area for speed display
-            LCDArea(0,DESIRED_CAMHEIGHT, CAMWIDTH, DESIRED_CAMHEIGHT*2, BLACK,1) 
+            LCDArea(0,CAMHEIGHT, CAMWIDTH, CAMHEIGHT*2, BLACK,1) 
             
             # Check if the robot has reached a stop and if it has been stopped for more than 3 seconds
             if stop_reached and time.time() - stop_time >= 3.0: 
@@ -434,6 +456,8 @@ def load():
                     if action[1] == 0.0:
                         stop_reached = True
                         stop_time = time.time()
+                else:
+                    speed_limit = 0.5
             else:
                 speed_limit = 0.5
             
@@ -457,7 +481,37 @@ def load():
     
 
 # LOAD AND TRAIN --------------------------------------------------------------------------------------------------------
+    
+# Function to load a pre-trained model and continue training it
+def load_train(): 
 
+    # Find the most recent model
+    result = find_latest_model()
+    if result is None:
+        return
+    most_recent_model, iteration = result
+
+    print(f"Loading model: {most_recent_model} for further training with iteration {iteration}")
+
+    # Load the pre-trained model
+    model_path = f"{models_dir}/{most_recent_model}"
+    model = PPO.load(model_path, env=env, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps)
+
+    # Continue training the model
+    while True:
+        LCDMenu("TRAIN", "-", "-", "BACK")
+        key = KEYRead()
+        if key == KEY1:  # Train the model
+            model.learn(total_timesteps=25*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+            new_model = f"model_{iteration}"
+            model.save(f"{models_dir}/{new_model}")
+            iteration += 1
+        elif key == KEY4:
+            break
+
+# FILE HANDLING -------------------------------------------------------------------------------------------------------
+
+# Function to find the latest model in the models directory
 def find_latest_model():
     previous_models = os.listdir(models_dir)
 
@@ -482,35 +536,7 @@ def find_latest_model():
         return None
     
     return most_recent_model, iteration
-    
-# Function to load a pre-trained model and continue training it
-def load_train(): 
 
-    # Find the most recent model
-    result = find_latest_model()
-    if result is None:
-        return
-    most_recent_model, iteration = result
-
-    print(f"Loading model: {most_recent_model} for further training with iteration {iteration}")
-
-    # Load the pre-trained model
-    model_path = f"{models_dir}/{most_recent_model}"
-    model = PPO.load(model_path, env = env, learning_rate = learning_rate, n_steps = n_steps, tensorboard_log = logdir)
-    
-    # Continue training the model
-    while True:
-        LCDMenu("TRAIN", "-", "-", "STOP")
-        key = KEYRead()
-        if key == KEY1: # Train the model
-            model.learn(total_timesteps = n_steps*25, progress_bar = True, reset_num_timesteps = False, tb_log_name = f"{algorithm}")
-            new_model = f"model_{iteration}"
-            model.save(f"{models_dir}/{new_model}")
-            iteration += 1
-        elif key == KEY4:
-            break
-
-        
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
 
 # Function to process the image from the camera
@@ -521,13 +547,13 @@ def image_processing(image):
 
     # Image cropping to desired height
     middle = CAMHEIGHT//2
-    lower = middle - DESIRED_CAMHEIGHT//2
-    upper = middle + DESIRED_CAMHEIGHT//2
+    lower = middle - CAMHEIGHT//2
+    upper = middle + CAMHEIGHT//2
     image_reshaped = image_reshaped[lower:upper, :, :]
 
     # Image resizing to desired width and height
 
-    cropped_image = cv2.resize(image_reshaped, (CAMWIDTH, DESIRED_CAMHEIGHT))
+    cropped_image = cv2.resize(image_reshaped, (CAMWIDTH, CAMHEIGHT))
     return cropped_image
 
 # MAIN -------------------------------------------------------------------------------------------------------
@@ -535,7 +561,7 @@ def image_processing(image):
 def main():
     # Initialize the camera with QQVGA resolution (160x120)
     CAMInit(QQVGA) 
-    LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
+    LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
 
     while True:
         LCDMenu("TRAIN", "TEST", "LOAD", "STOP")
@@ -546,7 +572,7 @@ def main():
 
         elif key == KEY2: # Load a pre-trained model and test it
             while True:
-                LCDMenu("TEST", "OBJECT_POSITIONS", "RESET", "EXIT")
+                LCDMenu("MORE", "OBJECT_POS", "RESET", "BACK")
                 key = KEYRead()
                 if key == KEY1: # Load a pre-trained model and test it
                     test()
@@ -560,10 +586,10 @@ def main():
 
         elif key == KEY3: # Test the environment and the robot's performance
             while True:
-                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "EXIT")
+                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "BACK")
                 key = KEYRead()
                 if key == KEY1: # Load a pre-trained model and test it
-                    load()
+                    load_test()
                 elif key == KEY2: # Load a pre-trained model and continue training it
                     load_train()
                 elif key == KEY4: # Stop the program
