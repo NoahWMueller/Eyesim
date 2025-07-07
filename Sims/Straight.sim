@@ -1,0 +1,6 @@
+# Environment
+world Worlds/Straight.wld
+
+# robotname x y phi
+S4 305 2500 0
+

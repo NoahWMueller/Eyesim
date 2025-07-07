@@ -1,5 +1,5 @@
 # Environment
-world Carolo_Centroids.wld
+world Worlds/Carolo_1_Centroids.wld
 
 # robotname x y phi
 S4 2800 4400 0
