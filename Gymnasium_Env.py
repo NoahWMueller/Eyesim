@@ -2,15 +2,12 @@
 
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
-import os
-import re
 import cv2
 import time
 from eye import *
 import numpy as np
 import gymnasium as gym
 from random import randint
-from stable_baselines3 import PPO
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
@@ -160,18 +157,22 @@ right_lane_stop = 6
 
 # GYMNASIUM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
-# Custom environment for the robot simulation using OpenAI Gymnasium
+# Custom environment for the robot simulation using Gymnasium
 class EyeSimEnv(gym.Env):
-    
-    def __init__(self):
-        super(EyeSimEnv, self).__init__()
-        # Define the lower and upper bounds
-        low = np.array([-1.0, 0.0], dtype=np.float32)
-        high = np.array([1.0, 1.0], dtype=np.float32)
 
-        self.action_space = gym.spaces.Box(low=low, high=high, dtype=np.float32) # Float action space for robot angular speed, range from -1 to 1
-        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) # Image observation space, 3 channels (RGB), 60x160 pixels
-        
+    def __init__(self, control_mode='angular', angular_model=None):
+        super(EyeSimEnv, self).__init__()
+        self.control_mode = control_mode
+
+        if control_mode == 'linear':
+            self.action_space = gym.spaces.Box(low=np.array([0.0]), high=np.array([1.0]), dtype=np.float32)
+        elif control_mode == 'angular':
+            self.action_space = gym.spaces.Box(low=np.array([-1.0]), high=np.array([1.0]), dtype=np.float32)
+        else:
+            self.action_space = gym.spaces.Box(low=np.array([-1.0, 0.0]), high=np.array([1.0, 1.0]), dtype=np.float32)
+
+        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8)
+
         # Initialize variables
         self.stop_reached = False
         self.stop_time = time.time()
@@ -184,49 +185,50 @@ class EyeSimEnv(gym.Env):
         self.current_centroids = left_centroids
         self.speed_limit_centroids = left_lane_30speedlimit
         self.stop_centroid = left_lane_stop
+        self.angular_model = angular_model
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
         self.eyesim_reset()
         observation = self.eyesim_get_observation()
+        self.last_obs = observation.copy()  # Save for angular model to use
         info = {}
         return observation, info
 
     def step(self, action):
-        object_check() # Check if the objects are in the correct position
+        object_check()
 
-        angular, linear = action[0], action[1] # linear and angular action
-
-        # Determines if robot is inside left lane or has gotten lost
-        result1, result2 = self.eyesim_get_position() 
-        
-        # Set robot linear and angular speed based on action
-        self.eyesim_set_robot_speed(linear, angular) 
-
-        # Read image from camera
-        observation = self.eyesim_get_observation()
-
-        # Calculate reward based on position
-        drive_reward = self.calculate_drive_reward(result1, result2) # Calculate the drive reward based on the position
-        speed_reward = self.calculate_speed_reward(linear) # Calculate the speed reward based on the speed
-        if drive_reward != -10.0: # If the robot is inside the next polygon, update the current centroid
-            reward = drive_reward + speed_reward # Total reward is the sum of the drive and speed rewards
+        if self.control_mode == 'linear':
+            linear = action[0]
+            angular = 0.0
+            if self.angular_model:
+                angular_action, _ = self.angular_model.predict(self.last_obs, deterministic=True)
+                angular = angular_action[0]
+        elif self.control_mode == 'angular':
+            linear = 1
+            angular = action[0]
         else:
-            reward = drive_reward
+            angular, linear = action[0], action[1]
 
-        # Determine if the episode is done
-        done = self.is_done(result1,result2)
+        result1, result2 = self.eyesim_get_position()
+        self.eyesim_set_robot_speed(linear, angular)
 
-        # Truncated is not used in this case, but included for compatibility with gym API
+        observation = self.eyesim_get_observation()
+        self.last_obs = observation.copy()  # Save for angular model to use
+        drive_reward = self.calculate_drive_reward(result1, result2)
+        speed_reward = self.calculate_speed_reward(linear) if self.control_mode != 'angular' else 0.0
+
+        reward = drive_reward + speed_reward if drive_reward != -10.0 else drive_reward
+        done = self.is_done(result1, result2)
         truncated = False
 
-        # Create info dictionary to store additional information
-        info = {"Position_reward": drive_reward, 
-                "Speed_reward": speed_reward, 
-                "Stop_Reached": self.stop_reached, 
-                "Current_Centroid": self.current_centroid,
-                "Current_Lane": "left_lane" if self.current_lane == left_lane else "right_lane",
-                }
+        info = {
+            "Position_reward": drive_reward,
+            "Speed_reward": speed_reward,
+            "Stop_Reached": self.stop_reached,
+            "Current_Centroid": self.current_centroid,
+            "Current_Lane": "left_lane" if self.current_lane == left_lane else "right_lane"
+        }
 
         return observation, reward, done, truncated, info
 
@@ -397,219 +399,6 @@ def object_check():
     if SIMGetObject(7)[0].value != SpeedLimitSign2[0] or SIMGetObject(7)[1].value != SpeedLimitSign2[1] or SIMGetObject(7)[2].value != SpeedLimitSign2[2]: 
         SIMSetObject(7, SpeedLimitSign2[0], SpeedLimitSign2[1], 10, SpeedLimitSign2[2])
 
-# INITIALIZE ----------------------------------------------------------------------------------------------------------------
-
-# Register the environment with gymnasium and create an instance of it
-env_id = "gymnasium_env/EyeSimCaroloEnv"
-
-if env_id not in gym.registry:
-    gym.register(
-        id=env_id,
-        entry_point="road_follow_PPO:EyeSimEnv",
-    )
-
-env = gym.make(env_id)
-
-# TEST ----------------------------------------------------------------------------------------------------------------
-
-# Function to test the environment and the robot's performance
-def test(): 
-    env.reset()
-    while True:
-        action = env.action_space.sample()
-        _, reward, done, _, info= env.step(action)
-        print(f"Reward: {reward}, Action: {action}, Done: {done}, Current_Centroid: {info['Current_Centroid']}, Current_Lane: {info['Current_Lane']}")
-    
-        if done: # If the episode is done, reset the environment
-            env.reset()
-
-        # Stop the random actions
-        LCDMenu("-", "-", "-", "STOP")
-        key = KEYRead()
-        if key == KEY4:
-            VWSetSpeed(0,0)
-            break
-
-# TRAIN ---------------------------------------------------------------------------------------------------------------
-
-# Function to train the robot behaviour using an reinforcement learning algorithm
-def train(): 
-
-    # Check if the models directory exists, if not create it
-    if not os.path.exists(models_dir):
-        os.makedirs(models_dir)
-
-    # Check if the logs directory exists, if not create it
-    if not os.path.exists(logdir):
-        os.makedirs(logdir)
-
-    # Define the PPO model with the specified parameters
-    model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps)
-
-    # Train the model for 100,000 steps
-    model.learn(total_timesteps=100*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-    model.save(f"{models_dir}/model_0")
-
-# LOAD ---------------------------------------------------------------------------------------------------------------- 
-
-# Function to load a pre-trained model and test it
-def load_test(): 
-    # Find the most recent model
-    result = find_latest_model()
-    if result is None:
-        return
-    most_recent_model, _ = result
-
-    print(f"Loading model: {most_recent_model}")
-
-    # Load the pre-trained model
-    trained_model = most_recent_model
-    model_path = f"{models_dir}/{trained_model}"
-    model = PPO.load(model_path, env=env)
-
-    # Test the loaded model by taking actions based on the model's predictions
-    done = False
-    obs, _ = env.reset()
-
-    # Initialize variables for speed and stop logic
-    current_speed = 0
-    current_reward = 0.0
-    iteration = 0
-    stop_reached = False
-    stop_time = 0.0
-    speed_limit = 0.0
-    total_iterations = 5
-
-    # Continue testing the loaded model until the user decides to stop
-    while True:
-        if done:
-            obs, _ = env.reset()
-            done = False
-        action, _ = model.predict(obs)
-        obs, reward, done, _, info= env.step(action)
-        
-        # Display the current action, reward, done status, and additional info
-        print(f"Reward:{reward}, Action: {action}, Done: {done}, Info: {info}")
-        
-        # Retrieve the current centroid from the info dictionary
-        current_centroid = info["Current_Centroid"]
-        current_lane = info["Current_Lane"]
-
-        # Gather reward and speed information to average out
-        if iteration < total_iterations:
-            iteration += 1
-            # Convert the speed to speed limit
-            current_speed += action[1] * 100 
-            current_reward += round(float(reward),2)
-
-        else:
-            # Clear the LCD area for speed display
-            LCDArea(0,CAMHEIGHT, CAMWIDTH, CAMHEIGHT*2, BLACK,1) 
-            
-            # Check if the robot has reached a stop and if it has been stopped for more than 3 seconds
-            if stop_reached and time.time() - stop_time >= 3.0: 
-                stop_reached = False
-                stop_time = 0.0
-            
-            # Speed limit logic
-            if current_lane == "left_lane":
-                stop_centroids = left_lane_stop
-                speed_limit_centroids = left_lane_30speedlimit
-            else:
-                stop_centroids = right_lane_stop
-                speed_limit_centroids = right_lane_30speedlimit
-
-            if speed_limit_centroids[0] <= current_centroid <= speed_limit_centroids[1]:
-                speed_limit = 0.75
-            elif current_centroid == stop_centroids:
-                if not stop_reached:
-                    speed_limit = 0.0
-                    if action[1] == 0.0:
-                        stop_reached = True
-                        stop_time = time.time()
-                else:
-                    speed_limit = 0.5
-            else:
-                speed_limit = 0.5
-            
-            # Display the speed limit and average speed on the LCD
-            LCDSetColor(RED,BLACK)
-            LCDSetPrintf(10,0, "Speed Limit: %d", int(speed_limit*100))
-            LCDSetColor(WHITE,BLACK)
-            LCDSetPrintf(12,0, "Average Speed: %d", int(current_speed/total_iterations))
-            LCDSetColor(WHITE,BLACK)
-            LCDSetPrintf(14,0, "Average Reward: %.2f", round((current_reward/total_iterations),2))
-            
-            # Reset the speed count and current speed for the next iteration
-            iteration = 0
-            current_speed = 0
-            current_reward = 0
-
-        LCDMenu("-", "-", "-", "STOP")
-        key = KEYRead()
-        if key == KEY4: # Train the model
-            break
-    
-
-# LOAD AND TRAIN --------------------------------------------------------------------------------------------------------
-    
-# Function to load a pre-trained model and continue training it
-def load_train(): 
-
-    # Find the most recent model
-    result = find_latest_model()
-    if result is None:
-        return
-    most_recent_model, iteration = result
-
-    print(f"Loading model: {most_recent_model} for further training with iteration {iteration}")
-
-    # Load the pre-trained model
-    model_path = f"{models_dir}/{most_recent_model}"
-    model = PPO.load(model_path, env=env)
-
-    # Continue training the model v
-    while True:
-        LCDMenu("TRAIN", "-", "-", "BACK")
-        key = KEYRead()
-        if key == KEY1:  # Train the model
-            model.learn(total_timesteps=50*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-            new_model = f"model_{iteration}"
-            model.save(f"{models_dir}/{new_model}")
-            iteration += 1
-        elif key == KEY4:
-            break
-
-# FILE HANDLING -------------------------------------------------------------------------------------------------------
-
-# Function to find the latest model in the models directory
-def find_latest_model():
-    previous_models = os.listdir(models_dir)
-
-    # Filter only files matching pattern like model_123.zip
-    model_files = [f for f in previous_models if re.match(r"model_\d+\.zip", f)]
-
-    # Extract the number and find the model with the highest number
-    def extract_model_number(filename):
-        match = re.search(r"model_(\d+)\.zip", filename)
-        return int(match.group(1)) if match else -1
-
-    # Sort models by number
-    model_files.sort(key=extract_model_number)
-
-    # Get the most recent model
-    most_recent_model = model_files[-1] if model_files else "None"
-    iteration = (int(most_recent_model.split("_")[1].split(".")[0]) + 1) if most_recent_model else 0
-
-    # If no pre-trained model is found, print a message and return
-    if iteration == 0 or most_recent_model == "None":
-        print("No pre-trained model found. Please train a model first.")
-        return None
-    
-    return most_recent_model, iteration
-
-# IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
-
 # Function to process the image from the camera
 def image_processing(image):
     # Convert the image to a numpy array and shape it to the set dimensions
@@ -626,48 +415,3 @@ def image_processing(image):
 
     cropped_image = cv2.resize(image_reshaped, (CAMWIDTH, CAMHEIGHT))
     return cropped_image
-
-# MAIN -------------------------------------------------------------------------------------------------------
-
-def main():
-    # Initialize the camera with QQVGA resolution (160x120)
-    CAMInit(QQVGA) 
-    LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
-
-    while True:
-        LCDMenu("TRAIN", "TEST", "LOAD", "STOP")
-
-        key = KEYRead()
-        if key == KEY1: # Train the model
-            train()
-
-        elif key == KEY2: # Load a pre-trained model and test it
-            while True:
-                LCDMenu("TEST_ENV", "OBJECT_POS", "TEST_RESET", "BACK")
-                key = KEYRead()
-                if key == KEY1: # Load a pre-trained model and test it
-                    test()
-                elif key == KEY2: # Load a pre-trained model and continue training it
-                    for i in range(2,8):
-                        print((SIMGetObject(i)))
-                if key == KEY3: # Load a pre-trained model and test it
-                    env.reset()
-                elif key == KEY4: # Stop the program
-                    break 
-
-        elif key == KEY3: # Test the environment and the robot's performance
-            while True:
-                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "BACK")
-                key = KEYRead()
-                if key == KEY1: # Load a pre-trained model and test it
-                    load_test()
-                elif key == KEY2: # Load a pre-trained model and continue training it
-                    load_train()
-                elif key == KEY4: # Stop the program
-                    break
-            
-        elif key == KEY4: # Stop the program
-            break
-
-main()
-
