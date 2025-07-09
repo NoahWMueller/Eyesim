@@ -4,3 +4,13 @@ world Worlds/Straight.wld
 # robotname x y phi
 S4 305 2500 0
 
+# Objects
+object C:\Users\Noah\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects/StopSign/stopsign.esObj
+StopSign 2230 4673 0
+
+object C:\Users\Noah\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects\SpeedLimitSign\speedlimitsign.esObj
+SpeedLimitSign 300 2755 0
+
+object C:\Users\Noah\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects/SpeedLimitSign/10speedlimitsign.esObj
+10SpeedLimitSign 300 1100 0
+

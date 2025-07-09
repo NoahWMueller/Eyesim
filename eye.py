@@ -834,7 +834,7 @@ def SIMGetObject(id):
 	z = ctypes.c_int()
 	phi = ctypes.c_int()
 	lib.SIMGetObject(id, ctypes.pointer(x), ctypes.pointer(y), ctypes.pointer(z), ctypes.pointer(phi))
-	return [x, y, phi]
+	return [x, y, z, phi]
 
 def SIMSetObject(id, x, y, z, phi):
 	lib.SIMSetObject(id, x, y, z, phi)
