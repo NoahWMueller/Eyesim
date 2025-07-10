@@ -57,6 +57,7 @@ class EyeSimEnv(gym.Env):
         # Initialize class variables
         self.stop_reached = False
         self.stop_time = time.time()
+        self.completed_stop = False
         self.track = randint(1,3) # Randomly select a track for the robot to follow
         self.speedlimit10_position = randint(1000, 3500) # Randomly select a position for the 10 limit sign
         self.speedlimit30_position = randint(1000, 3500) # Randomly select a position for the 30 limit sign
@@ -96,8 +97,9 @@ class EyeSimEnv(gym.Env):
     
     def calculate_speed_reward(self, linear_speed, position):
         penalty = 0.0 # Initialize penalty for speed limit violations
+        buffer = 150
         if self.track == 1:
-            if position >= self.speedlimit10_position:
+            if position >= self.speedlimit10_position - buffer:
                 # Smooth reward function: reward is higher when speed is close to target
                 speed_error = abs(linear_speed - speedlimit10)
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
@@ -109,7 +111,7 @@ class EyeSimEnv(gym.Env):
                     penalty = -speed_error
 
         if self.track == 2:
-            if position >= self.speedlimit30_position:
+            if position >= self.speedlimit30_position - buffer:
                 # Smooth reward function: reward is higher when speed is close to target
                 speed_error = abs(linear_speed - speedlimit30)
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
@@ -122,20 +124,32 @@ class EyeSimEnv(gym.Env):
 
 
         elif self.track == 3:
-            if position >= (stop_sign_position - 200):
+            if position >= (stop_sign_position - 100) and not self.completed_stop:
                 
                 # Check if robot has stopped
                 if linear_speed == 0.0 and not self.stop_reached:
                         self.stop_reached = True
                         self.stop_time = time.time()
 
+                elif self.stop_reached and linear_speed > 0.0 and not self.completed_stop:
+                    # If the robot is moving after stopping, reset stop reached
+                    self.stop_reached = False
+                    self.stop_time = 0.0
+
                 # If the robot has stopped, check if it's been stopped long enough
-                if self.stop_reached:
+                elif self.stop_reached:
                     elapsed = time.time() - self.stop_time
                     if elapsed >= 3.0:
                         # Stop duration satisfied; remove speed limit penalty
                         self.stop_reached = False
                         self.stop_time = 0.0
+                        self.completed_stop = True
+
+                # If the robot is moving after completing the stop, reset the stop reached flag and stop time
+                elif self.completed_stop:
+                    self.stop_reached = False
+                    self.stop_time = 0.0
+                    
                 else:
                     # Robot is approaching stop, enforce speed limit
                     speed_error = abs(linear_speed)
@@ -168,7 +182,6 @@ class EyeSimEnv(gym.Env):
         linear_speed = 200
         VWSetSpeed(round(linear_speed*linear),0) # Set the speed of the robot
         time.sleep(0.1) # Sleep for a short time to allow the robot to move
-        VWSetSpeed(0,0)
 
     # Function to get the image from the camera and process it
     def eyesim_get_observation(self): 
@@ -203,6 +216,11 @@ class EyeSimEnv(gym.Env):
 
         # Place the signs and robot in the simulation
         self.place_signs() 
+
+        # Reset completed stop flags
+        self.completed_stop = False
+        self.stop_reached = False
+
         SIMSetRobot(1,x,y,10,0)
 
 # Function to check if the objects are in the correct position and set them if not
@@ -261,7 +279,7 @@ def train():
     model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps)
 
     # Train the model
-    model.learn(total_timesteps=50*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+    model.learn(total_timesteps=100*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
     model.save(f"{models_dir}/model_0")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
@@ -304,7 +322,7 @@ def load_test():
         # Predict the action using the loaded model
         action, _ = model.predict(obs)
         obs, reward, done, _, _= env.step(action)
-        print(f"Reward: {reward}, Action: {action}")
+        print(f"Reward: {reward}, Action: {action}, Done: {done}")
         # End testing if user presses the stop key
         if key == KEY4: 
             break
