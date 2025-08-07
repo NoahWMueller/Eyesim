@@ -39,16 +39,19 @@ In the context of EyeSim, PPO is used to train the Eyebot to navigate using visi
 ---
 
 ## Repository Structure
-├── road_follow/             # PPO training scripts for road navigation  
-├── object_track/            # PPO training scripts for red object tracking  
-├── sims/                    # EyeSim world files and scenarios  
-├── models/                  # Saved trained models  
-├── logs/                    # TensorBoard logs and metrics  
-├── images-videos/           # Output media, GIFs, and visualizations  
-├── Angular_Control_PPO.py   # Optional: angular controller script  
-├── Linear_Control_PPO.py    # Optional: linear controller script  
-├── helper_functions.py      # Shared utility functions  
-└── README.md                # Project documentation  
+
+├── Map_points/                # text files with EyeSim coordinates for current tracks  
+├── Red_Object_Tracking/       # PPO training scripts for red object tracking  
+├── sims/                      # EyeSim world files and simulator setups
+├── images-videos/             # Output media and visualisations  
+├── logs/                      # TensorBoard logs and metrics  
+├── models/                    # Saved trained models  
+├── Angular_Control_PPO.py     # Angular controller script  
+├── helper_functions.py        # Shared utility functions  
+├── Image_Point_Processing.py  # Processes given points into EyeSim coordinates   
+├── Linear_Control_PPO.py      # linear controller script  
+├── eye.py                     # EyeSim commands script  
+└── README.md                  # Project documentation  
 
 ---
 
