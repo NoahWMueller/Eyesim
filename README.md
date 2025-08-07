@@ -6,7 +6,7 @@
 
 ##  Background: EyeSim Simulator
 
-EyeSim is a mobile robot simulator developed to mirror the behavior of EyeBot hardware, including differential steering, onboard synthetic vision, bumpers, odometry, and more. It allows programs written for the real robot to be run unchanged in simulation, ensuring high fidelity and seamless transferability.:contentReference[oaicite:0]{index=0}
+EyeSim is a mobile robot simulator developed to mirror the behavior of EyeBot hardware, including differential steering, onboard synthetic vision, odometry, and more. It allows programs written for the real robot to be run unchanged in simulation, ensuring high fidelity and seamless transferability.
 
 ---
 
