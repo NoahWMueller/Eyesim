@@ -1,0 +1,6 @@
+# Environment
+world Worlds/Track_1.wld
+
+# robotname x y phi
+S4 2800 4400 0
+

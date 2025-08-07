@@ -3,6 +3,8 @@
 import os
 import re
 import cv2
+import ast
+from eye import *
 import numpy as np
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
@@ -44,6 +46,15 @@ def find_latest_model(models_dir):
     
     return most_recent_model, iteration
 
+# Function to load map points from a file
+def load_map_points(file_path):
+    map_points = []
+    with open(file_path, 'r') as file:
+        for line in file:
+            # Convert string "(x, y, phi)" safely into a tuple
+            map_points.append(ast.literal_eval(line.strip()))
+    return map_points
+
 # IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
 
 # Function to process the image from the camera
@@ -62,3 +73,27 @@ def image_processing(image):
     cropped_image = cv2.resize(image_reshaped, (CAMWIDTH, CAMHEIGHT))
 
     return cropped_image
+
+# EYESIM ------------------------------------------------------------------------------------------------------------------
+
+StopSign1 = [0, 0, 0]  # Placeholder for StopSign1 coordinates
+StopSign2 = [0, 0, 0]  # Placeholder for StopSign2 coordinates
+SpeedLimit10Sign1 = [0, 0, 0]  # Placeholder for SpeedLimit10Sign1 coordinates
+SpeedLimit10Sign2 = [0, 0, 0]  # Placeholder for SpeedLimit10Sign2 coordinates
+SpeedLimitSign1 = [0, 0, 0]  # Placeholder for SpeedLimitSign1 coordinates
+SpeedLimitSign2 = [0, 0, 0]  # Placeholder for SpeedLimitSign2 coordinates
+
+# Function to check if the objects are in the correct position and set them if not
+def object_check():
+    if SIMGetObject(2)[0].value != StopSign1[0] or SIMGetObject(2)[1].value != StopSign1[1] or SIMGetObject(2)[2].value != StopSign1[2]: 
+        SIMSetObject(2, StopSign1[0], StopSign1[1], 10, StopSign1[2]+90)
+    if SIMGetObject(3)[0].value != StopSign2[0] or SIMGetObject(3)[1].value != StopSign2[1] or SIMGetObject(3)[2].value != StopSign2[2]: 
+        SIMSetObject(3, StopSign2[0], StopSign2[1], 10, StopSign2[2]+90)
+    if SIMGetObject(4)[0].value != SpeedLimit10Sign1[0] or SIMGetObject(4)[1].value != SpeedLimit10Sign1[1] or SIMGetObject(4)[2].value != SpeedLimit10Sign1[2]: 
+        SIMSetObject(4, SpeedLimit10Sign1[0], SpeedLimit10Sign1[1], 10, SpeedLimit10Sign1[2])
+    if SIMGetObject(5)[0].value != SpeedLimit10Sign2[0] or SIMGetObject(5)[1].value != SpeedLimit10Sign2[1] or SIMGetObject(5)[2].value != SpeedLimit10Sign2[2]: 
+        SIMSetObject(5, SpeedLimit10Sign2[0], SpeedLimit10Sign2[1], 10, SpeedLimit10Sign2[2])
+    if SIMGetObject(6)[0].value != SpeedLimitSign1[0] or SIMGetObject(6)[1].value != SpeedLimitSign1[1] or SIMGetObject(6)[2].value != SpeedLimitSign1[2]: 
+        SIMSetObject(6, SpeedLimitSign1[0], SpeedLimitSign1[1], 10, SpeedLimitSign1[2])
+    if SIMGetObject(7)[0].value != SpeedLimitSign2[0] or SIMGetObject(7)[1].value != SpeedLimitSign2[1] or SIMGetObject(7)[2].value != SpeedLimitSign2[2]: 
+        SIMSetObject(7, SpeedLimitSign2[0], SpeedLimitSign2[1], 10, SpeedLimitSign2[2])

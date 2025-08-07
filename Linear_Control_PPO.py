@@ -38,6 +38,7 @@ n_steps=2048
 # Starting positions for the robot on the tracks
 start_positions = [863,2535] 
 stop_sign_position = 2230 # Positions for the stop sign on the tracks
+basespeedlimit = 0.6
 speedlimit10 = 0.5
 speedlimit30 = 0.75
 
@@ -97,28 +98,44 @@ class EyeSimEnv(gym.Env):
     
     def calculate_speed_reward(self, linear_speed, position):
         penalty = 0.0 # Initialize penalty for speed limit violations
-        buffer = 150
+        buffer = 550
         if self.track == 1:
-            if position >= self.speedlimit10_position - buffer:
+            if position >= self.speedlimit10_position - buffer and position <= self.speedlimit10_position: # ramping up to speed limit 10
+                # Smooth reward function: reward is higher when speed is close to target
+                linear_speed_limit = speedlimit10+(1-((self.speedlimit10_position-position)/buffer))*abs(speedlimit10-basespeedlimit)
+                speed_error = abs(linear_speed - linear_speed_limit)
+                if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
+                    penalty = -speed_error
+
+            elif position >= self.speedlimit10_position: # reached speed limit 10
                 # Smooth reward function: reward is higher when speed is close to target
                 speed_error = abs(linear_speed - speedlimit10)
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
                     penalty = -speed_error
-            else:
+
+            else: # prior to speed limit 10
                 # Smooth reward function: reward is higher when speed is close to target
-                speed_error = abs(linear_speed - 1.0)
+                speed_error = abs(linear_speed - basespeedlimit)
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
                     penalty = -speed_error
 
         if self.track == 2:
-            if position >= self.speedlimit30_position - buffer:
+            if position >= self.speedlimit30_position - buffer and position <= self.speedlimit30_position: # ramping up to speed limit 30
+                # Smooth reward function: reward is higher when speed is close to target
+                linear_speed_limit = speedlimit30-(((self.speedlimit30_position-position)/buffer))*abs(speedlimit30-basespeedlimit)
+                speed_error = abs(linear_speed - linear_speed_limit)
+                if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
+                    penalty = -speed_error
+
+            if position >= self.speedlimit30_position - buffer: # reached speed limit 30
                 # Smooth reward function: reward is higher when speed is close to target
                 speed_error = abs(linear_speed - speedlimit30)
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
                     penalty = -speed_error
-            else:
+
+            else: # prior to speed limit 30
                 # Smooth reward function: reward is higher when speed is close to target
-                speed_error = abs(linear_speed - 1.0)
+                speed_error = abs(linear_speed - basespeedlimit)
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
                     penalty = -speed_error
 
@@ -157,7 +174,7 @@ class EyeSimEnv(gym.Env):
                         penalty = -speed_error  # Slightly fast: small penalty
             else:
                 # Smooth reward function: reward is higher when speed is close to target
-                speed_error = abs(linear_speed - 1.0)
+                speed_error = abs(linear_speed - basespeedlimit)
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
                     penalty = -speed_error
 
@@ -418,5 +435,4 @@ def main():
             break
 
 main()
-
 
