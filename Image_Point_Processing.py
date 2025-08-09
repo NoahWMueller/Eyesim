@@ -84,7 +84,7 @@ track_1_raw_right_lane_coordinates = [
 ]
 
 track_2_raw_left_lane_coordinates = load_map_points("Map_points/Track_2/raw_left_lane.txt")
-track_2_raw_right_lane_coordinates = []
+track_2_raw_right_lane_coordinates = load_map_points("Map_points/Track_2/raw_right_lane.txt")
 
 # Define the world dimensions
 t1_world_width = 5000
@@ -100,7 +100,7 @@ t1_scale_y = t1_world_height / t1_img_height
 
 # Calculate scale factors
 t2_scale_x = t2_world_width / t2_img_width
-t2_scale_y = t2_world_height / t2_img_height
+t2_scale_y = t2_world_height / t2_img_height # (1550,1336) 
 
 # Function to add polygons to the image
 def image_processing(image,coordinates):
@@ -110,7 +110,7 @@ def image_processing(image,coordinates):
         # Draw the point on the image
         cv2.circle(image, (x, y), 5, (0, 0, 255), -1)
         # # Add a label with the point index: image, text, position, font, font scale, color, thickness
-        cv2.putText(image, str(i), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        # cv2.putText(image, str(i), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         
     # Creating polygons and finding centre point of each polygon
     for i in range(0, len(coordinates)-3, 2):

@@ -2,12 +2,10 @@
 
 # TO-DO --------------------------------------------------------------------------------------------------------------
 
-# add potential for carolo_2 map
-# fix the path placement to random position along track
 
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
-import time
+import math
 from eye import *
 import gymnasium as gym
 from random import randint
@@ -21,12 +19,11 @@ CAMWIDTH = 160
 CAMHEIGHT = 120
 
 # Current version of the code for saving models and logs
-version = 1.6
+version = 1.8
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}/Angular"
 logdir = f"logs/Carolo/{version}/Angular"
-
 
 # Check if the models directory exists, if not create it
 if not os.path.exists(models_dir):
@@ -35,7 +32,6 @@ if not os.path.exists(models_dir):
 # Check if the logs directory exists, if not create it
 if not os.path.exists(logdir):
     os.makedirs(logdir)
-
 
 # Algorithm used for training
 algorithm = "PPO" 
@@ -47,6 +43,11 @@ n_steps=2048
 
 # Load the lane coordinates from files
 track = 2
+
+left_lane = []
+left_centroids = []
+right_lane = []
+right_centroids = []
 
 if track == 1:
     left_lane = load_map_points("Map_points/Track_1/left_lane.txt")
@@ -77,13 +78,24 @@ class EyeSimEnv(gym.Env):
         self.observation_space = gym.spaces.Box(low=0, high=255, shape=(CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) 
         
         # Initialize variables
+        self.current_centroid = 0
+        self.next_centroid = 0
         self.current_polygon = np.array([])
-        self.current_centroid = randint(0, len(left_centroids) - 1) # Randomly select a starting centroid
         self.next_polygon = np.array([])
-        self.next_centroid = self.current_centroid + 1
         self.current_lane = left_lane
         self.current_centroids = left_centroids
+        self.update_polygon()
+        self.finish_centroid = len(self.current_centroids) - 1 # Finish centroid is the one before the current centroid
 
+        self.new_reset_point = (self.current_centroids[self.current_centroid][0],
+                            self.current_centroids[self.current_centroid][1],
+                            self.current_centroids[self.current_centroid][2],
+                            self.current_centroid) 
+        self.reset_point = (self.current_centroids[self.current_centroid][0],
+                            self.current_centroids[self.current_centroid][1],
+                            self.current_centroids[self.current_centroid][2],
+                            self.current_centroid) 
+        
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
         self.eyesim_reset()
@@ -122,13 +134,23 @@ class EyeSimEnv(gym.Env):
     def calculate_drive_reward(self, result1, result2):
         # If the robot is inside the next polygon, return a positive reward
         if result2 > 0:
-            # update previous polygon to current polygon and repeat 
-            self.current_centroid += 1
-            self.current_centroid %= len(self.current_centroids) # No need to change since both centroid lists are the same length
+
+            # Update reset position
+            if self.new_reset_point[3] < self.current_centroid: 
+                self.reset_point = self.new_reset_point
+                self.new_reset_point = (SIMGetRobot(1)[0].value, SIMGetRobot(1)[1].value, abs(360 - SIMGetRobot(1)[3].value)-180, self.current_centroid)
+            
+            elif self.new_reset_point[3] == self.current_centroid: 
+                self.new_reset_point = (SIMGetRobot(1)[0].value, SIMGetRobot(1)[1].value, abs(360 - SIMGetRobot(1)[3].value)-180, self.current_centroid)
+
+
+            # update centroid and previous polygon to current polygon
+            self.current_centroid = (self.current_centroid + 1) % len(self.current_centroids)
             self.update_polygon()
             return 5.0
+        
         # If the robot is inside neither  polygon, return a big negative reward
-        if result1 < 0 and result2 < 0: 
+        elif result1 < 0 and result2 < 0: 
             return -10.0
         # If the robot is inside the current polygon, return no reward
         else:
@@ -136,30 +158,24 @@ class EyeSimEnv(gym.Env):
 
     def is_done(self, result1, result2):
         # Determine if the robot left all allowable polygons
-        if (result1 == -1 and result2 == -1) or self.lap_check(): return True
-        else: return False
+        if (result1 == -1 and result2 == -1) or self.lap_check(): 
+            return True
+        else: 
+            return False
 
     # INCLUDED EYESIM HELPER FUNCTIONS --------------------------------------------------------------------------------------------------
 
     def lap_check(self):
         # If the robot has completed a lap, switch sides and reset the current centroid
-        if self.current_centroid == 63:
-            if self.current_lane == left_lane:
-                self.current_lane = right_lane
-                self.current_centroids = right_centroids
-                self.current_centroid = 0
-                return True
-            else:
-                self.current_lane = left_lane
-                self.current_centroids = left_centroids
-                self.current_centroid = 0
-                return True
-        return False
+        if self.current_centroid == self.finish_centroid:
+            return True
+        else:
+            return False
 
     # Function to set the speed of the robot based on the action taken
     def eyesim_set_robot_speed(self, angular): 
         # Set the speed of the robot based on the action taken
-        angular_speed = 100
+        angular_speed = 200
         VWSetSpeed(200,round(angular_speed*angular)) # Set the speed of the robot
 
     # Function to get the image from the camera and process it
@@ -185,7 +201,7 @@ class EyeSimEnv(gym.Env):
             self.current_lane[(self.current_centroid*2+2)]
         ], np.int32)
 
-        self.next_centroid = (self.current_centroid + 1)% len(self.current_centroids)
+        self.next_centroid = (self.current_centroid + 1) % len(self.current_centroids)
 
         self.next_polygon = np.array([
             self.current_lane[self.next_centroid*2],
@@ -194,14 +210,11 @@ class EyeSimEnv(gym.Env):
             self.current_lane[(self.next_centroid*2+2)]
         ], np.int32)
 
-    # Function to get the distance to the red peak
+    # Function to get the current position of the robot in the simulation
     def eyesim_get_position(self): 
         # Get the current position of the robot in the simulation
         [x,y,_,_] = SIMGetRobot(1)
         point = (x.value, y.value)
-
-        # Update the current and next polygons based on the current centroid
-        self.update_polygon()
 
         # Reshape the polygon points
         self.current_polygon = self.current_polygon.reshape((-1, 1, 2))
@@ -217,13 +230,29 @@ class EyeSimEnv(gym.Env):
     def eyesim_reset(self): 
         # Stop robot movement
         VWSetSpeed(0,0)
+        
+        if self.current_centroid == self.finish_centroid: # If robot is at the first centroid, randomly select a new starting centroid
+            if self.current_lane == left_lane:
+                self.current_lane = right_lane
+                self.current_centroids = right_centroids
+            else:
+                self.current_lane = left_lane
+                self.current_centroids = left_centroids
 
-        # If robot is not at the first centroid, move it back one centroid
-        self.current_centroid = (self.current_centroid - 2) % len(self.current_centroids)
+            self.current_centroid = 0 # Randomly select a starting centroid
+            self.finish_centroid = (self.current_centroid - 1) % len(self.current_centroids) # Finish centroid is the one before the current centroid
+
+            self.reset_point = (self.current_centroids[self.current_centroid][0],
+                                self.current_centroids[self.current_centroid][1],
+                                self.current_centroids[self.current_centroid][2],
+                                self.current_centroid)
         
         # Position the robot in the correct position based on the current centroid
-        x,y,phi = self.current_centroids[self.current_centroid]
-        SIMSetRobot(1,x,y,10,phi+180) # Add 180 degrees to the angle to flip robot into correct direction
+        x, y, phi, reset_centroid = self.reset_point
+        print(self.reset_point)
+        print(self.new_reset_point)
+        self.current_centroid = reset_centroid
+        SIMSetRobot(1, x, y, 10, phi + 180) # Add 180 degrees to the angle to flip robot into correct direction
 
         # Update the current and next polygons based on the current centroid
         self.update_polygon()
@@ -232,6 +261,7 @@ class EyeSimEnv(gym.Env):
 
 # Register the environment with gymnasium and create an instance of it
 env_id = "gymnasium_env/AngularEnv"
+
 
 # Check if the environment is already registered, if not register it
 if env_id not in gym.registry:
@@ -271,11 +301,14 @@ def test():
 def train(): 
 
     # Define the PPO model with the specified parameters
-    model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps)
+    model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps,
+                learning_rate=learning_rate, batch_size=64, gamma=0.99,
+                n_epochs=10, ent_coef=0.01, clip_range=0.2)
 
-    # Train the model for 100,000 steps
-    model.learn(total_timesteps=150*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-    model.save(f"{models_dir}/model_0")
+    # Train the model
+    for i in range(4): # Train the model
+        model.learn(total_timesteps=100*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+        model.save(f"{models_dir}/model_0_{i}")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 

@@ -1,0 +1,8 @@
+# Environment
+world Worlds/Track_2_Centroids.wld
+
+# load custom robot
+robot Updated_Robots/S4blue.robi
+
+# robotname x y phi
+S4blue 7083 3450 270

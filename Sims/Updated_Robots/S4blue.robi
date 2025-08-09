@@ -1,0 +1,58 @@
+Robi file:
+# robi description file for the EyeBot simulator EyeSim 6.0
+# by Andreas Koestler, Thomas Braunl, 2004
+
+# EyeSim 5.0 by Axel Waggershauser, Thomas Braunl, 2002
+# inspired by the parameter file for EyeSim 1.0 by
+# Thomas Braunl - Ghee Ong - Nicholas Tay, 1998
+
+# the format: valid lines contain a keyword followed by a list of
+# parameters seperated by white space. every line not starting with
+# a keyword is ignored.
+
+# every parameter describing a length is specified in milli meter
+# every parameter describing a angle is specified in degree
+
+drive  DIFFERENTIAL_DRIVE
+
+# the name of the robi, the used string is the rest of the line
+# behind the keyword without the surrounding white space
+name S4blue
+
+# robot mass
+mass 50 0 30 -30
+
+# the file name of the OpenInventor model used for this robi
+model S4blue.obj 0 0 0 0 90 0
+
+
+# Front
+collider box 95 74 65 0 46 -50 
+# Back
+collider box 95 40 30 0 30 60
+collider capsule 10 50 0 21 -60
+
+# axis is the distance between the center of the robi and the center of
+# the robis axis, e.g. a value of 0 means the axis is in the center of
+# the robi, if no value is given, it is set to 0.
+axis 22.7 10.8
+
+# psd sensor definition: (psd names are followed by id-number from  hdt_sem.h )
+# "psd" id name  relative position to robi center(x,y,z) in mm, angle in x-y plane in deg
+psd 1 PSD_FRONT     60        20     30    0    0  0
+psd 2 PSD_LEFT      56        45     30    0   90  0
+psd 3 PSD_RIGHT     56       -45     30    0  -90  0
+psd 4 PSD_BACK      61        20    -30    0  180  0
+
+
+# color camera sensor definition:
+#  camera , relative position to the robi center (x,y,z), default (_,front(+) and back(-),up(+) and down(-))
+# pan-tilt-angle (pan, tilt), maximum image width and height in pixel
+camera 0 62 60 0 0 482 162
+
+# fisheye lens 60-150
+fisheye 150
+
+
+# wheel diameter [mm], max. rotational velocity [deg/s], encoder ticks/rev., wheel-base distance [mm]
+wheel  54  3600  1100  45

@@ -1,6 +1,8 @@
 # Environment
 world Worlds/Track_1.wld
 
-# robotname x y phi
-S4 2800 4400 0
+# load custom robot
+robot Updated_Robots/S4blue.robi
 
+# robotname x y phi
+S4blue 2000 2000 0
