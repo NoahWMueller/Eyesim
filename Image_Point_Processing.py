@@ -87,11 +87,11 @@ track_2_raw_left_lane_coordinates = load_map_points("Map_points/Track_2/raw_left
 track_2_raw_right_lane_coordinates = load_map_points("Map_points/Track_2/raw_right_lane.txt")
 
 # Define the world dimensions
-t1_world_width = 5000
-t1_world_height = 5000
+t1_world_width = 4889
+t1_world_height = 4818
 
 # Define the world dimensions
-t2_world_width = 7500
+t2_world_width = 7611
 t2_world_height = 7500
 
 # Calculate scale factors

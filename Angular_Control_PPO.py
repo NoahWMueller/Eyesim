@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
 # TO-DO --------------------------------------------------------------------------------------------------------------
+"""
 
-
+"""
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
-import math
+import time
 from eye import *
 import gymnasium as gym
 from random import randint
@@ -15,11 +16,12 @@ from stable_baselines3 import PPO
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
 # Constants for camera settings
-CAMWIDTH = 160
-CAMHEIGHT = 120
+CAM_SETTING = QVGA
+CAMWIDTH = QVGA_X
+CAMHEIGHT = QVGA_Y
 
 # Current version of the code for saving models and logs
-version = 1.8
+version = 1.9
 
 # Directory paths for saving models and logs
 models_dir = f"models/Carolo/{version}/Angular"
@@ -40,26 +42,46 @@ policy_network = "CnnPolicy" # Policy network used for training
 # Training parameters
 learning_rate=0.0001
 n_steps=2048
+batch_size=128
+ent_coef=0.005
+clip_range=0.15
+max_grad_norm=0.25
+
+# INITIALISING TRACK ---------------------------------------------------------------------------------------------------
 
 # Load the lane coordinates from files
-track = 2
-
 left_lane = []
 left_centroids = []
 right_lane = []
 right_centroids = []
 
-if track == 1:
-    left_lane = load_map_points("Map_points/Track_1/left_lane.txt")
-    left_centroids = load_map_points("Map_points/Track_1/left_centroids.txt")
-    right_lane = load_map_points("Map_points/Track_1/right_lane.txt")
-    right_centroids = load_map_points("Map_points/Track_1/right_centroids.txt")
+total_tracks = 2
 
-elif track == 2:
-    left_lane = load_map_points("Map_points/Track_2/left_lane.txt")
-    left_centroids = load_map_points("Map_points/Track_2/left_centroids.txt")
-    right_lane = load_map_points("Map_points/Track_2/right_lane.txt")
-    right_centroids = load_map_points("Map_points/Track_2/right_centroids.txt")
+def set_track(track=1):
+    global left_lane
+    global left_centroids
+    global right_lane
+    global right_centroids
+    if track == 1:
+        left_lane = load_map_points("Map_points/Track_1/left_lane.txt")
+        left_centroids = load_map_points("Map_points/Track_1/left_centroids.txt")
+        right_lane = load_map_points("Map_points/Track_1/right_lane.txt")
+        right_centroids = load_map_points("Map_points/Track_1/right_centroids.txt")
+
+    elif track == 2:
+        left_lane = load_map_points("Map_points/Track_2/left_lane.txt")
+        left_centroids = load_map_points("Map_points/Track_2/left_centroids.txt")
+        right_lane = load_map_points("Map_points/Track_2/right_lane.txt")
+        right_centroids = load_map_points("Map_points/Track_2/right_centroids.txt")
+
+        # Moving to accomdate track position
+        for name in ["left_lane", "right_lane"]:
+            globals()[name] = [(x + 4875, y) for (x, y) in globals()[name]]
+        for name in ["left_centroids", "right_centroids"]:
+            globals()[name] = [(x + 4875, y, phi) for (x, y, phi) in globals()[name]]
+
+set_track()
+
 
 # GYMNASIUM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
@@ -86,6 +108,8 @@ class EyeSimEnv(gym.Env):
         self.current_centroids = left_centroids
         self.update_polygon()
         self.finish_centroid = len(self.current_centroids) - 1 # Finish centroid is the one before the current centroid
+        self.current_track = 1
+        self.lap_count = 0
 
         self.new_reset_point = (self.current_centroids[self.current_centroid][0],
                             self.current_centroids[self.current_centroid][1],
@@ -95,6 +119,7 @@ class EyeSimEnv(gym.Env):
                             self.current_centroids[self.current_centroid][1],
                             self.current_centroids[self.current_centroid][2],
                             self.current_centroid) 
+        self.timesteps = 0
         
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
@@ -104,6 +129,7 @@ class EyeSimEnv(gym.Env):
         return observation, info
 
     def step(self, action):
+        self.timesteps += 1
         angular = action[0] # linear and angular action
 
         # Determines if robot is inside left lane or has gotten lost
@@ -127,27 +153,36 @@ class EyeSimEnv(gym.Env):
         # Create info dictionary to store additional information
         info = {"Reward": reward,
                 "Current_Centroid": self.current_centroid,
-                "Current_Lane": "left_lane" if self.current_lane == left_lane else "right_lane"}
+                "Current_Lane": "left_lane" if self.current_lane == left_lane else "right_lane",
+                "reset_point": self.reset_point,
+                "new_reset_point": self.new_reset_point}
 
+        if self.timesteps >= n_steps:
+            self.timesteps = 0
+            VWSetSpeed(0,0)
+        
         return observation, reward, done, truncated, info
 
     def calculate_drive_reward(self, result1, result2):
         # If the robot is inside the next polygon, return a positive reward
         if result2 > 0:
-
+            reward = 5.0
             # Update reset position
             if self.new_reset_point[3] < self.current_centroid: 
                 self.reset_point = self.new_reset_point
                 self.new_reset_point = (SIMGetRobot(1)[0].value, SIMGetRobot(1)[1].value, abs(360 - SIMGetRobot(1)[3].value)-180, self.current_centroid)
-            
+
             elif self.new_reset_point[3] == self.current_centroid: 
                 self.new_reset_point = (SIMGetRobot(1)[0].value, SIMGetRobot(1)[1].value, abs(360 - SIMGetRobot(1)[3].value)-180, self.current_centroid)
 
-
             # update centroid and previous polygon to current polygon
-            self.current_centroid = (self.current_centroid + 1) % len(self.current_centroids)
+            self.current_centroid = self.current_centroid + 1
+
+            # Additional reward for making it to the end of the track
+            if self.current_centroid == len(self.current_centroids) - 1: reward += 15.0
             self.update_polygon()
-            return 5.0
+
+            return reward
         
         # If the robot is inside neither  polygon, return a big negative reward
         elif result1 < 0 and result2 < 0: 
@@ -168,6 +203,20 @@ class EyeSimEnv(gym.Env):
     def lap_check(self):
         # If the robot has completed a lap, switch sides and reset the current centroid
         if self.current_centroid == self.finish_centroid:
+            
+            # After two successful laps switch course
+            self.lap_count += 1
+            if self.lap_count == 2:
+                if self.current_track == 1:
+                    print("setting track 1")
+                    set_track(2)
+                    self.current_track = 2
+                else:
+                    print("setting track 1")
+                    set_track(1)
+                    self.current_track = 1
+                self.lap_count = 0
+
             return True
         else:
             return False
@@ -240,17 +289,20 @@ class EyeSimEnv(gym.Env):
                 self.current_centroids = left_centroids
 
             self.current_centroid = 0 # Randomly select a starting centroid
-            self.finish_centroid = (self.current_centroid - 1) % len(self.current_centroids) # Finish centroid is the one before the current centroid
+            self.finish_centroid = len(self.current_centroids) - 1 # Finish centroid is the one before the current centroid
 
             self.reset_point = (self.current_centroids[self.current_centroid][0],
+                                self.current_centroids[self.current_centroid][1],
+                                self.current_centroids[self.current_centroid][2],
+                                self.current_centroid)
+            
+            self.new_reset_point = (self.current_centroids[self.current_centroid][0],
                                 self.current_centroids[self.current_centroid][1],
                                 self.current_centroids[self.current_centroid][2],
                                 self.current_centroid)
         
         # Position the robot in the correct position based on the current centroid
         x, y, phi, reset_centroid = self.reset_point
-        print(self.reset_point)
-        print(self.new_reset_point)
         self.current_centroid = reset_centroid
         SIMSetRobot(1, x, y, 10, phi + 180) # Add 180 degrees to the angle to flip robot into correct direction
 
@@ -279,13 +331,13 @@ env = gym.make(env_id)
 def test(): 
     env.reset()
     while True:
-        LCDMenu("-", "-", "-", "STOP")
+        LCDMenu("-", "-", "-", "Stop")
         key = KEYRead()
         
         # Take random actions in the environment
         action = env.action_space.sample()
         _, reward, done, _, info= env.step(action)
-        print(f"Reward: {reward}, Action: {action}, Done: {done}, Current_Centroid: {info['Current_Centroid']}, Current_Lane: {info['Current_Lane']}")
+        print(f"Reward: {reward}, Action: {action}, Done: {done}, Current_Centroid: {info['Current_Centroid']}, Current_Lane: {info['Current_Lane']}, Reset_point: {info['reset_point']}, New_Reset_Point: {info['new_reset_point']}")
 
         # If the episode is done, reset the environment
         if done: env.reset()
@@ -302,35 +354,22 @@ def train():
 
     # Define the PPO model with the specified parameters
     model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps,
-                learning_rate=learning_rate, batch_size=64, gamma=0.99,
-                n_epochs=10, ent_coef=0.01, clip_range=0.2)
+                learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef, clip_range=clip_range, max_grad_norm=max_grad_norm)
 
     # Train the model
     for i in range(4): # Train the model
         model.learn(total_timesteps=100*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-        model.save(f"{models_dir}/model_0_{i}")
+        model.save(f"{models_dir}/model_{i}")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 
 # Function to load a pre-trained model and test it
-def load_test(): 
+def load_test(model): 
 
-    # Find the most recent model
-    result = find_latest_model(models_dir)
-
-    # If no model is found, return
-    if result is None:
-        print("No pre-trained model found.")
-        return
-    
-    # If a model is found, select it
-    else:
-        most_recent_model, _ = result
-        print(f"Loading model: {most_recent_model}")
+    print(f"Loading model: {model}")
 
     # Load the pre-trained model
-    trained_model = most_recent_model
-    model_path = f"{models_dir}/{trained_model}"
+    model_path = f"{models_dir}/{model}"
     model = PPO.load(model_path, env=env)
 
     # Test the loaded model by taking actions based on the model's predictions
@@ -339,7 +378,7 @@ def load_test():
 
     # Continue testing the loaded model until the user decides to stop
     while True:
-        LCDMenu("-", "-", "-", "STOP")
+        LCDMenu("-", "-", "-", "Stop")
         key = KEYRead()
         
         # If the robot completes an episode, reset the environment
@@ -358,29 +397,18 @@ def load_test():
 # LOAD AND TRAIN --------------------------------------------------------------------------------------------------------
     
 # Function to load a pre-trained model and continue training it
-def load_train(): 
+def load_train(model, iteration): 
 
-    # Find the most recent model
-    result = find_latest_model(models_dir)
 
-    # If no model is found, return
-    if result is None:
-        print("No pre-trained model found.")
-        return
-    
-    # If a model is found, select it
-    else:
-        most_recent_model, iteration = result
-        print(f"Loading model: {most_recent_model}")
+    print(f"Loading model: {model}")
 
     # Load the pre-trained model
-    model_path = f"{models_dir}/{most_recent_model}"
+    model_path = f"{models_dir}/{model}"
     model = PPO.load(model_path, env=env)
-    print(f"Loading model: {most_recent_model} for further training with model_{iteration}")
-
+    new_iteration = iteration
     # Continue training the model
     while True:
-        LCDMenu("TRAIN", "-", "-", "BACK")
+        LCDMenu("Train", "-", "-", "Back")
         key = KEYRead()
 
         # If the user presses the train key, continue training the model
@@ -388,7 +416,7 @@ def load_train():
             model.learn(total_timesteps=50*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
             new_model = f"model_{iteration}"
             model.save(f"{models_dir}/{new_model}")
-            iteration += 1
+            new_iteration += 1
 
         # If the user presses the back key, stop training and return to the main menu
         elif key == KEY4:
@@ -398,11 +426,12 @@ def load_train():
 
 def main():
     # Initialize the camera with QQVGA resolution (160x120)
-    CAMInit(QQVGA) 
+    CAMInit(CAM_SETTING) 
     LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
+    LCDSetPrintf(10,20,"Linear Control")
 
     while True:
-        LCDMenu("TRAIN", "TEST", "LOAD", "STOP")
+        LCDMenu("Train", "Test", "Load", "Quit")
         key = KEYRead()
 
         # Train the model
@@ -412,32 +441,82 @@ def main():
         # Testing Menu
         elif key == KEY2: 
             while True:
-                LCDMenu("TEST_ENV", "TEST_RESET", "-", "BACK")
+                LCDMenu("Env", "Reset", "Track", "Back")
                 key = KEYRead()
 
                 if key == KEY1: # Test the environment with random actions
                     test()
                 elif key == KEY2: # Reset the environment
                     env.reset()
+                
+                elif key == KEY3:
+                    track = 1
+                    while(True):
+                        LCDMenu("Up", "Down", "Test", "Back")
+                        key = KEYRead()
+                        if key == KEY1:
+                            if track < total_tracks: track +=1
+                            print(f"Selecting Track {track}")
+                        elif key == KEY2:
+                            if track > 1: track -=1
+                            print(f"Selecting Track {track}")
+                        elif key == KEY3:
+                            set_track(track)
+                            for (x,y,phi) in left_centroids:
+                                SIMSetRobot(1,x,y,10,phi+180)
+                                time.sleep(0.1)
+                        elif key == KEY4:
+                            break
+
                 elif key == KEY4: # Back to the main menu
                     break 
         
         # Load Menu
         elif key == KEY3: 
+            model = "None"
+            model_number = 0
             while True:
-                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "BACK")
+                LCDMenu("Test", "Train", "Select", "Back")
                 key = KEYRead()
-    
                 if key == KEY1: # Load a pre-trained model for testing
-                    load_test()
+                    if model != "None": load_test(model)
+                    else: print("Please select model before testing.")
                 elif key == KEY2: # Load a pre-trained model to continue training
-                    load_train()
+                    if model != "None": load_train(model, model_number)
+                    else: print("Please select model before additional training.")
+                elif key == KEY3:
+                    model_list, most_recent_model = find_latest_model(models_dir)
+                    if len(model_list) != 0: 
+                        while(True):
+                            LCDMenu("Up", "Down", "Latest", "Back")
+                            key = KEYRead()
+                            if key == KEY1:
+                                if model_number < len(model_list) - 1: 
+                                    model_number +=1
+                                    model = f"model_{model_number}.zip"
+                                print(f"Selected model: {model_number}")
+                            elif key == KEY2:
+                                if model_number > 0: 
+                                    model_number -= 1
+                                    model = f"model_{model_number}.zip"
+                                print(f"Selected model: {model_number}")
+                            elif key == KEY3:
+                                model_number = most_recent_model
+                                model = f"model_{model_number}.zip"
+                                print(f"Selected model: {model_number}")
+                            elif key == KEY4:
+                                break
+                    else:
+                        print("No models available, please train one to select.")
+
                 elif key == KEY4: # Back to the main menu
+                    VWSetSpeed(0,0)
                     break
         
         # Stop the program
         elif key == KEY4:
             break
+            
 
 main()
 

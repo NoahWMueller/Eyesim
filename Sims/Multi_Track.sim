@@ -1,0 +1,20 @@
+# Environment
+world Worlds/Multi_Track.wld
+
+# load custom robots
+robot Updated_Robots/S4blue.robi
+robot Updated_Robots/S4red.robi
+
+# robotname x y phi
+S4blue 2000 2000 0 ../Angular_Control_PPO.py
+S4red 2500 6100 0  ../Linear_Control_PPO.py
+
+# Objects for straight track training
+object C:\Users\Noah\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects/StopSign/stopsign.esObj
+StopSign 2263 7307 45
+
+object C:\Users\Noah\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects\SpeedLimitSign\speedlimitsign.esObj
+SpeedLimitSign 400 6386 45
+
+object C:\Users\Noah\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects/SpeedLimitSign/10speedlimitsign.esObj
+10SpeedLimitSign 400 5465 45

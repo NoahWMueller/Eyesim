@@ -10,8 +10,8 @@ import numpy as np
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
 # Constants for camera settings
-CAMWIDTH = 160
-CAMHEIGHT = 120
+CAMWIDTH = QVGA_X
+CAMHEIGHT = QVGA_Y
 
 # FILE HANDLING -------------------------------------------------------------------------------------------------------
 
@@ -35,16 +35,16 @@ def find_latest_model(models_dir):
 
     if most_recent_model == "None":
         print("No pre-trained model found.")
-        return None
+        return [], 0
     
-    iteration = (int(most_recent_model.split("_")[1].split(".")[0]) + 1) if most_recent_model else 0
+    iteration = (int(most_recent_model.split("_")[1].split(".")[0])) if most_recent_model else 0
 
     # If no pre-trained model is found, print a message and return
     if iteration == 0:
         print("No pre-trained model found.")
-        return None
+        return [], 0
     
-    return most_recent_model, iteration
+    return model_files, iteration
 
 # Function to load map points from a file
 def load_map_points(file_path):

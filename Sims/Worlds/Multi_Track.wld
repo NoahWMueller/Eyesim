@@ -1,0 +1,27 @@
+# World file
+
+# Floor texture and size (x y)
+floor_texture Tracks/Multi_Track.png
+floor 12500 7500
+
+# Walls for track_1 (x1 y1 x2 y2)
+-50 0 5000 0
+-50 4700 5000 4700
+-50 0 -50 4700
+5000 4700 5000 0
+
+# Walls for track_2 (x1 y1 x2 y2)
+5250 0 12500 0
+5250 7500 12500 7500
+5250 0 5250 7500
+12500 0 12500 7500
+
+# Walls for track_3 (x1 y1 x2 y2)
+-50 4700 -50 7500
+-50 7500 5000 7500
+5000 4700 5000 7500
+
+# Additional walls for straight track seperations
+# -50 5650 5000 5650
+# -50 6550 5000 6550
+

@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 # TO-DO --------------------------------------------------------------------------------------------------------------
-
-
-
+"""
+update to new multi_track implementation, 
+    only 2 tracks stop sign
+    speed limit and new positions
+"""
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
 import time
@@ -16,8 +18,9 @@ from stable_baselines3 import PPO
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
 # Constants for camera settings
-CAMWIDTH = 160
-CAMHEIGHT = 120
+CAM_SETTING = QVGA
+CAMWIDTH = QVGA_X
+CAMHEIGHT = QVGA_Y
 
 # Current version of the code for saving models and logs
 version = 1.6
@@ -26,18 +29,44 @@ version = 1.6
 models_dir = f"models/Carolo/{version}/Linear"
 logdir = f"logs/Carolo/{version}/Linear"
 
+# Check if the models directory exists, if not create it
+if not os.path.exists(models_dir):
+    os.makedirs(models_dir)
+
+# Check if the logs directory exists, if not create it
+if not os.path.exists(logdir):
+    os.makedirs(logdir)
+
 # Algorithm used for training
 algorithm = "PPO" 
-# Policy network used for training
-policy_network = "CnnPolicy" 
+policy_network = "CnnPolicy" # Policy network used for training
 
 # Training parameters
 learning_rate=0.0001
 n_steps=2048
+batch_size=128
+ent_coef=0.005
+clip_range=0.15
+max_grad_norm=0.25
 
 # Starting positions for the robot on the tracks
-start_positions = [863,2535] 
-stop_sign_position = 2230 # Positions for the stop sign on the tracks
+# [track 1, track 2, track 3]
+robot_y_position = [5250,6180,7103] 
+robot_x_position = 400
+
+# [lower x, upper x, stop sign x]
+sign_x_positions = [1300, 3400, 2263]
+
+# [track 1, track 2, track 3]
+sign_y_positions = [5465, 6386, 7307]
+
+# Max travel distance on tracks
+max_distance = 4300
+
+# Distance buffer for sign recognition
+buffer = 380
+
+# Assigned values for speed limits
 basespeedlimit = 0.6
 speedlimit10 = 0.5
 speedlimit30 = 0.75
@@ -60,9 +89,8 @@ class EyeSimEnv(gym.Env):
         self.stop_time = time.time()
         self.completed_stop = False
         self.track = randint(1,3) # Randomly select a track for the robot to follow
-        self.speedlimit10_position = randint(1000, 3500) # Randomly select a position for the 10 limit sign
-        self.speedlimit30_position = randint(1000, 3500) # Randomly select a position for the 30 limit sign
-        self.stop_sign_robot_position = randint(300, 1600) # Randomly select a position for the robot on stop sign track
+        self.speedlimit10_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the 10 limit sign
+        self.speedlimit30_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the 30 limit sign
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
@@ -98,7 +126,8 @@ class EyeSimEnv(gym.Env):
     
     def calculate_speed_reward(self, linear_speed, position):
         penalty = 0.0 # Initialize penalty for speed limit violations
-        buffer = 550
+        
+        # SPEED LIMIT 10 SIGN
         if self.track == 1:
             if position >= self.speedlimit10_position - buffer and position <= self.speedlimit10_position: # ramping up to speed limit 10
                 # Smooth reward function: reward is higher when speed is close to target
@@ -118,7 +147,8 @@ class EyeSimEnv(gym.Env):
                 speed_error = abs(linear_speed - basespeedlimit)
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
                     penalty = -speed_error
-
+        
+        # SPEED LIMIT 30 SIGN
         if self.track == 2:
             if position >= self.speedlimit30_position - buffer and position <= self.speedlimit30_position: # ramping up to speed limit 30
                 # Smooth reward function: reward is higher when speed is close to target
@@ -139,9 +169,9 @@ class EyeSimEnv(gym.Env):
                 if speed_error > 0.05: # If the speed is lower than the speed limit with tolerance
                     penalty = -speed_error
 
-
+        # STOP SIGN
         elif self.track == 3:
-            if position >= (stop_sign_position - 100) and not self.completed_stop:
+            if position >= (sign_x_positions[2] - 100) and not self.completed_stop:
                 
                 # Check if robot has stopped
                 if linear_speed == 0.0 and not self.stop_reached:
@@ -183,8 +213,8 @@ class EyeSimEnv(gym.Env):
 
     def is_done(self, position):
         # If the robot has reached the end of the track, return True
-        if self.track < 3 and position >= 4700: return True
-        elif self.track == 3 and position >= stop_sign_position: return True
+        if self.track < 3 and position >= max_distance: return True
+        elif self.track == 3 and position >= sign_x_positions[2]: return True
         return False
 
     # INCLUDED EYESIM HELPER FUNCTIONS --------------------------------------------------------------------------------------------------
@@ -221,15 +251,11 @@ class EyeSimEnv(gym.Env):
 
         # Randomly select a track for the robot to follow
         self.track = randint(1,3) 
-        self.speedlimit10_position = randint(1000, 3500) # Randomly select a position for the sign
-        self.speedlimit30_position = randint(1000, 3500) # Randomly select a position for the sign
-        self.stop_sign_robot_position = randint(300, 1600) # Randomly select a position for the robot
+        self.speedlimit10_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the sign
+        self.speedlimit30_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the sign
 
         # Position the robot in the simulation on a random track
-        if self.track == 3:
-            x,y = self.stop_sign_robot_position,4442
-        else:
-            x,y = 300,start_positions[self.track-1]
+        x,y = robot_x_position,robot_y_position[self.track-1]
 
         # Place the signs and robot in the simulation
         self.place_signs() 
@@ -242,9 +268,9 @@ class EyeSimEnv(gym.Env):
 
 # Function to check if the objects are in the correct position and set them if not
     def place_signs(self):
-            SIMSetObject(2, stop_sign_position, 4673, 10, 0) # stop sign
-            SIMSetObject(4, self.speedlimit30_position, 2755, 10, 0) # speed limit 30 sign
-            SIMSetObject(3, self.speedlimit10_position, 1100, 10, 0) # speed limit 10 sign
+            SIMSetObject(2, sign_x_positions[2], sign_y_positions[2], 10, 0) # stop sign
+            SIMSetObject(4, self.speedlimit30_position, sign_y_positions[1], 10, 0) # speed limit 30 sign
+            SIMSetObject(3, self.speedlimit10_position, sign_y_positions[0], 10, 0) # speed limit 10 sign
 
 # INITIALIZE ----------------------------------------------------------------------------------------------------------------
 
@@ -284,42 +310,24 @@ def test():
 # Function to train the robot behaviour using an reinforcement learning algorithm
 def train(): 
 
-    # Check if the models directory exists, if not create it
-    if not os.path.exists(models_dir):
-        os.makedirs(models_dir)
-
-    # Check if the logs directory exists, if not create it
-    if not os.path.exists(logdir):
-        os.makedirs(logdir)
-
     # Define the PPO model with the specified parameters
-    model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate, n_steps=n_steps)
+    model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps,
+                learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef, clip_range=clip_range, max_grad_norm=max_grad_norm)
 
     # Train the model
-    model.learn(total_timesteps=100*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-    model.save(f"{models_dir}/model_0")
+    for i in range(4): # Train the model
+        model.learn(total_timesteps=100*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+        model.save(f"{models_dir}/model_{i}")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 
 # Function to load a pre-trained model and test it
-def load_test(): 
+def load_test(model): 
 
-    # Find the most recent model
-    result = find_latest_model(models_dir)
-
-    # If no model is found, return
-    if result is None:
-        print("No pre-trained model found.")
-        return
-    
-    # If a model is found, select it
-    else:
-        most_recent_model, _ = result
-        print(f"Loading model: {most_recent_model}")
+    print(f"Loading model: {model}")
 
     # Load the pre-trained model
-    trained_model = most_recent_model
-    model_path = f"{models_dir}/{trained_model}"
+    model_path = f"{models_dir}/{model}"
     model = PPO.load(model_path, env=env)
 
     # Test the loaded model by taking actions based on the model's predictions
@@ -328,7 +336,7 @@ def load_test():
 
     # Continue testing the loaded model until the user decides to stop
     while True:
-        LCDMenu("-", "-", "-", "STOP")
+        LCDMenu("-", "-", "-", "Stop")
         key = KEYRead()
         
         # If the robot completes an episode, reset the environment
@@ -338,38 +346,26 @@ def load_test():
         
         # Predict the action using the loaded model
         action, _ = model.predict(obs)
-        obs, reward, done, _, _= env.step(action)
-        print(f"Reward: {reward}, Action: {action}, Done: {done}")
+        obs, _, done, _, _= env.step(action)
+        
         # End testing if user presses the stop key
         if key == KEY4: 
             break
-    
+
 # LOAD AND TRAIN --------------------------------------------------------------------------------------------------------
     
 # Function to load a pre-trained model and continue training it
-def load_train(): 
+def load_train(model, iteration): 
 
-    # Find the most recent model
-    result = find_latest_model(models_dir)
-
-    # If no model is found, return
-    if result is None:
-        print("No pre-trained model found.")
-        return
-    
-    # If a model is found, select it
-    else:
-        most_recent_model, iteration = result
-        print(f"Loading model: {most_recent_model}")
+    print(f"Loading model: {model}")
 
     # Load the pre-trained model
-    model_path = f"{models_dir}/{most_recent_model}"
+    model_path = f"{models_dir}/{model}"
     model = PPO.load(model_path, env=env)
-    print(f"Loading model: {most_recent_model} for further training with model_{iteration}")
-
+    new_iteration = iteration
     # Continue training the model
     while True:
-        LCDMenu("TRAIN", "-", "-", "BACK")
+        LCDMenu("Train", "-", "-", "Back")
         key = KEYRead()
 
         # If the user presses the train key, continue training the model
@@ -377,7 +373,7 @@ def load_train():
             model.learn(total_timesteps=50*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
             new_model = f"model_{iteration}"
             model.save(f"{models_dir}/{new_model}")
-            iteration += 1
+            new_iteration += 1
 
         # If the user presses the back key, stop training and return to the main menu
         elif key == KEY4:
@@ -387,11 +383,11 @@ def load_train():
 
 def main():
     # Initialize the camera with QQVGA resolution (160x120)
-    CAMInit(QQVGA) 
+    CAMInit(CAM_SETTING) 
     LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
-
+    LCDSetPrintf(10,50,"Linear Control")
     while True:
-        LCDMenu("TRAIN", "TEST", "LOAD", "STOP")
+        LCDMenu("Train", "Test", "Load", "Quit")
         key = KEYRead()
 
         # Train the model
@@ -401,7 +397,7 @@ def main():
         # Testing Menu
         elif key == KEY2: 
             while True:
-                LCDMenu("TEST_ENV", "OBJECT_POS", "TEST_RESET", "BACK")
+                LCDMenu("Env", "Object Positions", "Reset", "Back")
                 key = KEYRead()
 
                 if key == KEY1: # Test the environment with random actions
@@ -419,20 +415,50 @@ def main():
         
         # Load Menu
         elif key == KEY3: 
+            model = "None"
+            model_number = 0
             while True:
-                LCDMenu("LOAD_TEST", "LOAD_TRAIN", "-", "BACK")
+                LCDMenu("Test", "Train", "Select", "Back")
                 key = KEYRead()
-                
                 if key == KEY1: # Load a pre-trained model for testing
-                    load_test()
+                    if model != "None": load_test(model)
+                    else: print("Please select model before testing.")
                 elif key == KEY2: # Load a pre-trained model to continue training
-                    load_train()
+                    if model != "None": load_train(model, model_number)
+                    else: print("Please select model before additional training.")
+                elif key == KEY3:
+                    model_list, most_recent_model = find_latest_model(models_dir)
+                    if len(model_list) != 0: 
+                        while(True):
+                            LCDMenu("Up", "Down", "Latest", "Back")
+                            key = KEYRead()
+                            if key == KEY1:
+                                if model_number < len(model_list) - 1: 
+                                    model_number +=1
+                                    model = f"model_{model_number}.zip"
+                                print(f"Selected model: {model_number}")
+                            elif key == KEY2:
+                                if model_number > 0: 
+                                    model_number -= 1
+                                    model = f"model_{model_number}.zip"
+                                print(f"Selected model: {model_number}")
+                            elif key == KEY3:
+                                model_number = most_recent_model
+                                model = f"model_{model_number}.zip"
+                                print(f"Selected model: {model_number}")
+                            elif key == KEY4:
+                                break
+                    else:
+                        print("No models available, please train one to select.")
+
                 elif key == KEY4: # Back to the main menu
+                    VWSetSpeed(0,0)
                     break
         
         # Stop the program
         elif key == KEY4:
             break
+            
 
 main()
 
