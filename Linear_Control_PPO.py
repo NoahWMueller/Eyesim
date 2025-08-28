@@ -220,7 +220,7 @@ class EyeSimEnv(gym.Env):
     # INCLUDED EYESIM HELPER FUNCTIONS --------------------------------------------------------------------------------------------------
 
     def eyesim_get_position(self): 
-        x,_,_,_ = SIMGetRobot(1)
+        x,_,_,_ = SIMGetRobot(2)
         return x.value
 
     # Function to set the speed of the robot based on the action taken
@@ -264,13 +264,13 @@ class EyeSimEnv(gym.Env):
         self.completed_stop = False
         self.stop_reached = False
 
-        SIMSetRobot(1,x,y,10,0)
+        SIMSetRobot(2,x,y,10,0)
 
 # Function to check if the objects are in the correct position and set them if not
     def place_signs(self):
-            SIMSetObject(2, sign_x_positions[2], sign_y_positions[2], 10, 0) # stop sign
-            SIMSetObject(4, self.speedlimit30_position, sign_y_positions[1], 10, 0) # speed limit 30 sign
-            SIMSetObject(3, self.speedlimit10_position, sign_y_positions[0], 10, 0) # speed limit 10 sign
+            SIMSetObject(3, sign_x_positions[2], sign_y_positions[2], 10, -45) # stop sign
+            SIMSetObject(4, self.speedlimit10_position, sign_y_positions[0], 10, -45) # speed limit 10 sign
+            SIMSetObject(5, self.speedlimit30_position, sign_y_positions[1], 10, -45) # speed limit 30 sign
 
 # INITIALIZE ----------------------------------------------------------------------------------------------------------------
 
@@ -385,7 +385,8 @@ def main():
     # Initialize the camera with QQVGA resolution (160x120)
     CAMInit(CAM_SETTING) 
     LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
-    LCDSetPrintf(10,50,"Linear Control")
+    LCDSetPrintf(0,60,"Linear Control")
+
     while True:
         LCDMenu("Train", "Test", "Load", "Quit")
         key = KEYRead()
@@ -403,7 +404,7 @@ def main():
                 if key == KEY1: # Test the environment with random actions
                     test()
                 elif key == KEY2: # Display the positions of the objects in the simulation
-                    i = 2
+                    i = 3
                     while SIMGetObject(i)[0].value != 0:
                         [x,y,_,_] = SIMGetObject(i)
                         print(f"Object {i} position: {x.value}, {y.value}")

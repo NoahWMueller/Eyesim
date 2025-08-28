@@ -7,7 +7,7 @@ robot Updated_Robots/S4red.robi
 
 # robotname x y phi
 S4blue 2000 2000 0 ../Angular_Control_PPO.py
-S4red 2500 6100 0  ../Linear_Control_PPO.py
+S4red 2500 6100 0  
 
 # Objects for straight track training
 object C:\Users\windows\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects/StopSign/stopsign.esObj

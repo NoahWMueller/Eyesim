@@ -428,7 +428,7 @@ def main():
     # Initialize the camera with QQVGA resolution (160x120)
     CAMInit(CAM_SETTING) 
     LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
-    LCDSetPrintf(10,20,"Linear Control")
+    LCDSetPrintf(0,60,"Angular Control")
 
     while True:
         LCDMenu("Train", "Test", "Load", "Quit")
