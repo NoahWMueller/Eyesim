@@ -3,15 +3,7 @@
 # TO-DO --------------------------------------------------------------------------------------------------------------
 
 """
-(changed to recurrentPPO instead) if a stop time is wanted, include stop time in observation space, capped at the max stop time
-    then the agent can learn how long to stop for based on the stop time value
-** discuss idea of chaning action space to -0.1 to 0.1 to represent acceleration and deceleration
-** Apply acceleration and deceleration to the current velocity value, also include current velocity in observation space
-    Learns to adjust speed rather than set it directly
 
-** After passing sign, once the robot has reached speed within a certain threshold, give a large reward, then go next track
-
-    
 Update all PPO functions to RecurrentPPO and make it work with lstm policy
 
 """
@@ -25,7 +17,8 @@ import gymnasium as gym
 from random import randint
 from Helper_Functions import *
 from stable_baselines3 import PPO
-# from sb3_contrib import RecurrentPPO
+from sb3_contrib import RecurrentPPO
+from stable_baselines3.common.evaluation import evaluate_policy
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
@@ -38,8 +31,8 @@ CAMHEIGHT = QVGA_Y
 version = 2.6
 
 # Directory paths for saving models and logs
-models_dir = f"models/{version}/Linear"
-logdir = f"logs/{version}/Linear"
+models_dir = f"models/Linear/{version}"
+logdir = f"logs/Linear/{version}"
 
 # Check if the models directory exists, if not create it
 if not os.path.exists(models_dir):
@@ -51,18 +44,18 @@ if not os.path.exists(logdir):
 
 # Algorithm used for training
 algorithm = "PPO" 
-policy_network = "MultiInputPolicy" # Policy network used for training
+policy_network = "MultiInputLstmPolicy" # Policy network used for training
 
 # Training parameters
 learning_rate = 0.0001
-n_steps = 2048   
-batch_size = 256  
+n_steps = 1024   
+batch_size = 128  
 ent_coef = 0.05      
 clip_range = 0.2
 max_grad_norm = 0.5
 use_sde = False
 sde_sample_freq = -1
-
+history_length = 5
 
 # Starting positions for the robot on the tracks
 # [track 1, track 2, track 3]
@@ -70,7 +63,7 @@ robot_y_position = [5250,6180,7103]
 robot_x_position = 400
 
 # [lower x, upper x, stop sign x]
-sign_x_positions = [2450, 2450, 2263]
+sign_x_positions = [1450, 3450, 2263]
 
 # [track 1, track 2, track 3]
 sign_y_positions = [5465, 6386, 7307]
@@ -88,6 +81,8 @@ speedlimit10 = 0.5
 speedlimit30 = 0.7
 maxspeedlimit = 1.5
 
+# Robot ID in the simulation
+robot_id = 1
 
 # GYMNASIUM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
@@ -106,9 +101,19 @@ class EyeSimEnv(gym.Env):
                 shape=(CAMHEIGHT, CAMWIDTH, 3), 
                 dtype=np.uint8
             ),
-            "current_velocity": gym.spaces.Box(
+            "Current_Speed": gym.spaces.Box(
                 low=np.array([0.0], dtype=np.float32), 
                 high=np.array([1.0], dtype=np.float32), 
+                dtype=np.float32
+            ),    
+            "image_his": gym.spaces.Box(
+                low=0, high=255,
+                shape=(history_length, CAMHEIGHT, CAMWIDTH, 3),
+                dtype=np.uint8
+            ),
+            "speed_his": gym.spaces.Box(
+                low=0.0, high=1.0,
+                shape=(history_length, 1),
                 dtype=np.float32
             )
         })
@@ -118,56 +123,80 @@ class EyeSimEnv(gym.Env):
         self.speedlimit10_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the 10 limit sign
         self.speedlimit30_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the 30 limit sign
         self.timesteps = 0
-        self.current_velocity = np.array([1.0], dtype=np.float32)
+        self.Current_Speed = np.array([1.0], dtype=np.float32)
         self.speed_reached = False
         self.completed_stop = False
         self.stop_reached = False
+        self.observation_history = []
         self.stop_time = 0.0
+        self.image_his = np.zeros((history_length, CAMHEIGHT, CAMWIDTH, 3), dtype=np.uint8)
+        self.speed_his = np.zeros((history_length, 1), dtype=np.float32)
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
         self.eyesim_reset()
-        observation = {"image":self.eyesim_get_observation(),
-                    "current_velocity": self.current_velocity
+
+        frame = self.eyesim_get_observation()
+        speed = self.Current_Speed
+        self.image_his[:] = np.repeat(frame[np.newaxis, ...], history_length, axis=0)
+        self.speed_his[:] = np.repeat(speed[np.newaxis, ...], history_length, axis=0)
+
+        observation = {"image":frame,
+                    "Current_Speed": speed,
+                    "image_his": self.image_his,
+                    "speed_his": self.speed_his
                     }
         info = {}
         return observation, info
 
     def step(self, action):
-        self.timesteps += 1
+        # Print action to LCD display
+        LCDSetPrintf(1,60,f"Action: {action[0]:.2f}")
 
-        self.current_velocity = np.array([np.clip(self.current_velocity[0] + action[0], 0.0, maxspeedlimit)], dtype=np.float32)
+        # self.timesteps += 1
+        # if self.timesteps == n_steps:
+        #     self.timesteps = 0
+        #     VWSetSpeed(0,0)
+
+        # Determine new current speed of the robot based on action
+        self.Current_Speed = np.array([np.clip(self.Current_Speed[0] + action[0], 0.0, maxspeedlimit)], dtype=np.float32)
 
         # Set robot linear and angular speed based on action
-        self.eyesim_set_robot_speed(self.current_velocity[0]) 
+        self.eyesim_set_robot_speed(self.Current_Speed[0]) 
 
         position = self.eyesim_get_position()
 
-        if self.timesteps == n_steps:
-            self.timesteps = 0
-            VWSetSpeed(0,0)
-        
-        # Read image from camera
-        observation = {"image":self.eyesim_get_observation(),
-                       "current_velocity":self.current_velocity}
+        # 3. Update history
+        new_frame = self.eyesim_get_observation()
+        self.image_his[:-1] = self.image_his[1:]       # shift old frames
+        self.image_his[-1] = new_frame                 # add new frame
+
+        self.speed_his[:-1] = self.speed_his[1:]       # shift old speeds
+        self.speed_his[-1] = self.Current_Speed        # add new speed
 
         # Calculate reward based on position
-        reward = self.calculate_speed_reward(self.current_velocity[0], position) # Calculate the speed reward based on the speed
+        reward = self.calculate_speed_reward(self.Current_Speed[0], position) # Calculate the speed reward based on the speed
 
         # Determine if the episode is done
         done = self.is_done(position)
-
-        # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
 
+        # Build observation
+        observation = {
+            "image": new_frame,
+            "Current_Speed": self.Current_Speed,
+            "image_his": self.image_his,
+            "speed_his": self.speed_his
+        }
+
         # Create info dictionary to store additional information
-        info = {"current velocity": self.current_velocity[0]}
-        
+        info = {"current velocity": self.Current_Speed[0]}
+
+        VWSetSpeed(0,0)
         return observation, reward, done, truncated, info
     
     def calculate_speed_reward(self, linear_speed, position):
-        LCDSetPrintf(1,60,f"Action: {linear_speed:.2f}")
-        LCDSetPrintf(2,60, f"Current Velocity: {self.current_velocity:.2f}    ")
+        LCDSetPrintf(2,60, f"Speed: {self.Current_Speed[0]:.2f}    ")
         # Initialize score for speed control
         score = 0.0 
 
@@ -310,11 +339,14 @@ class EyeSimEnv(gym.Env):
     def is_done(self, position):
         # If the robot has reached the end of the track, return True
 
-        if self.track < 3 and position >= (sign_x_positions[0] + buffer):
-            self.current_velocity = np.array([1.0], dtype=np.float32) 
+        if self.track == 1 and position >= (self.speedlimit30_position + buffer):
+            self.Current_Speed = np.array([1.0], dtype=np.float32) 
             return True
-        elif self.track == 3 and position >= sign_x_positions[2] + buffer: 
-            self.current_velocity = np.array([1.0], dtype=np.float32) 
+        if self.track == 2 and position >= (self.speedlimit10_position + buffer):
+            self.Current_Speed = np.array([1.0], dtype=np.float32) 
+            return True
+        elif self.track == 3 and position >= (sign_x_positions[2] + buffer): 
+            self.Current_Speed = np.array([1.0], dtype=np.float32) 
             # Reset completed stop flags
             self.completed_stop = False
             self.stop_reached = False
@@ -324,14 +356,14 @@ class EyeSimEnv(gym.Env):
     # INCLUDED EYESIM HELPER FUNCTIONS --------------------------------------------------------------------------------------------------
 
     def eyesim_get_position(self): 
-        x,_,_,_ = SIMGetRobot(2)
+        x,_,_,_ = SIMGetRobot(robot_id)
         return x.value
 
     # Function to set the speed of the robot based on the action taken
     def eyesim_set_robot_speed(self, linear): 
         # Set the speed of the robot based on the action taken
         linear_speed = 200
-        _,_,_,phi = SIMGetRobot(2)
+        _,_,_,phi = SIMGetRobot(robot_id)
         angular_speed = 0
         if phi.value > 0: 
             phi.value = (-phi.value if phi.value < 180 else 360 - phi.value)
@@ -352,7 +384,7 @@ class EyeSimEnv(gym.Env):
 
         return processed_img
 
-    # Function to reset the robot and can positions in the simulation
+    # Function to reset the robot and can positions in the simulation "C:\Users\noah\AppData\Local\Programs\EyeSim\EyeSim.exe"
     def eyesim_reset(self): 
         # Stop robot movement
         VWSetSpeed(0,0)
@@ -368,13 +400,13 @@ class EyeSimEnv(gym.Env):
         # Place the signs and robot in the simulation
         self.place_signs() 
 
-        SIMSetRobot(2,x,y,10,0)
+        SIMSetRobot(robot_id,x,y,10,0)
 
 # Function to check if the objects are in the correct position and set them if not
     def place_signs(self):
-            SIMSetObject(3, sign_x_positions[2], sign_y_positions[2], 10, -45) # stop sign
-            SIMSetObject(4, self.speedlimit30_position, sign_y_positions[0], 10, -45) # speed limit 10 sign
-            SIMSetObject(5, self.speedlimit10_position, sign_y_positions[1], 10, -45) # speed limit 30 sign
+            SIMSetObject(robot_id+1, sign_x_positions[2], sign_y_positions[2], 10, -45) # stop sign
+            SIMSetObject(robot_id+2, self.speedlimit30_position, sign_y_positions[0], 10, -45) # speed limit 10 sign
+            SIMSetObject(robot_id+3, self.speedlimit10_position, sign_y_positions[1], 10, -45) # speed limit 30 sign
 
 def reward_calculation(max_reward, target_speed, current_speed):
     range = 0
@@ -406,7 +438,7 @@ def test():
     while True:
         action = env.action_space.sample()
         obs, reward, done, _, _= env.step(action)
-        print(f"Reward: {reward:.2f}, Action: {action[0]:.2f}, Done: {done}, Current Velocity: {obs['current_velocity'][0]:.2f}")
+        print(f"Reward: {reward:.2f}, Action: {action[0]:.2f}, Done: {done}, Current Velocity: {obs['Current_Speed'][0]:.2f}")
     
         if done: # If the episode is done, reset the environment
             env.reset()
@@ -424,14 +456,47 @@ def test():
 def train(): 
 
     # Define the PPO model with the specified parameters
-    model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps,
+    model = RecurrentPPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps,
                 learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef, 
                 clip_range=clip_range, max_grad_norm=max_grad_norm, use_sde=use_sde, sde_sample_freq=sde_sample_freq)
+    
+    # Early stopping parameters
+    max_iterations = 100
+    Patience = 5
+    stability_tolerance = 5
+    best_mean_reward = -float('inf')
+    recent_mean_rewards = []
+    no_improvement_epochs = 0
 
     # Train the model
-    for i in range(1,16): # Train the model
-        model.learn(total_timesteps=51200, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-        model.save(f"{models_dir}/model_{i}")
+    for i in range(1,max_iterations+1): # Train the model
+        model.learn(total_timesteps=n_steps*10, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+        mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
+        print(f"Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
+
+        recent_mean_rewards.append(mean_reward)
+        if len(recent_mean_rewards) > stability_tolerance:
+            recent_mean_rewards.pop(0)
+        
+        if mean_reward > best_mean_reward:
+            best_mean_reward = mean_reward
+            no_improvement_epochs = 0
+            model.save(f"{models_dir}/linear_model")
+        
+        else:
+            no_improvement_epochs += 1
+        
+        if len(recent_mean_rewards) == Patience:
+            reward_variation = max(recent_mean_rewards) - min(recent_mean_rewards)
+            if reward_variation < 1.0:
+                print("Early stopping due to reward stability.")
+                break
+        
+        if no_improvement_epochs >= Patience:
+            print("Early stopping due to no improvement in mean reward.")
+            break
+
+
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 
@@ -526,14 +591,10 @@ def main():
         # Testing Menu
         elif key == KEY2: 
             while True:
-                LCDMenu("Env", "Robot Positions", "Reset", "Back")
+                LCDMenu("Env", "-", "Reset", "Back")
                 key = KEYRead()
-
                 if key == KEY1: # Test the environment with random actions
                     test()
-                elif key == KEY2: # Display the positions of the objects in the simulation
-                    img = CAMGet()
-                    LCDImage(img)
                 if key == KEY3: # Reset the environment
                     env.reset()
                 elif key == KEY4: # Back to the main menu

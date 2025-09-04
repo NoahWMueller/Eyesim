@@ -6,15 +6,14 @@ robot Updated_Robots/S4blue.robi
 robot Updated_Robots/S4red.robi
 
 # robotname x y phi
-S4blue 2000 2000 0 
-S4red 2500 6100 0  ../Linear_Control_PPO.py
+S4red 2500 6100 0
 
 # Objects for straight track training
-object C:\Users\windows\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects/StopSign/stopsign.esObj
+object C:\Users\noah\AppData\Local\Programs\EyeSim\Updated_Objects/StopSign/stopsign.esObj
 StopSign 2263 7307 45
 
-object C:\Users\windows\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects\SpeedLimitSign\speedlimitsign.esObj
-SpeedLimitSign 400 6386 45
+object C:\Users\noah\AppData\Local\Programs\EyeSim\Updated_Objects/SpeedLimitSign\speedlimitsign.esObj
+SpeedLimitSign 2450 5465 45 
 
-object C:\Users\windows\AppData\Local\Programs\EyeSim\eyesimX\Updated_Objects/SpeedLimitSign/10speedlimitsign.esObj
-10SpeedLimitSign 400 5465 45
+object C:\Users\noah\AppData\Local\Programs\EyeSim\Updated_Objects/SpeedLimitSign/10speedlimitsign.esObj
+10SpeedLimitSign 2450 6386 45
