@@ -4,21 +4,33 @@
 
 """
 
-Update all PPO functions to RecurrentPPO and make it work with lstm policy
+change reward system to score = exp(((-ln(0.01)/range)x)-max_reward
 
+reduce to one observation stack and only current speed then update code and feature extraction
+
+Eval callback saves best model based on mean reward ## look into this ##
+eval_callback = EvalCallback(eval_env, best_model_save_path=models_dir,
+                             log_path=logdir, eval_freq=50_000, n_eval_episodes=5, deterministic=Tru
+
+add features to LCD to show current model being trained, and how many left to do
+
+slightly increase ramp range
 """
-
 
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
 import time
+
 from eye import *
 import gymnasium as gym
 from random import randint
 from Helper_Functions import *
 from stable_baselines3 import PPO
-from sb3_contrib import RecurrentPPO
-from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+import torch as th
+import torch.nn as nn
+
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
@@ -27,12 +39,9 @@ CAM_SETTING = QVGA
 CAMWIDTH = QVGA_X
 CAMHEIGHT = QVGA_Y
 
-# Current version of the code for saving models and logs
-version = 2.6
-
 # Directory paths for saving models and logs
-models_dir = f"models/Linear/{version}"
-logdir = f"logs/Linear/{version}"
+models_dir = f"models/Linear"
+logdir = f"logs/Linear"
 
 # Check if the models directory exists, if not create it
 if not os.path.exists(models_dir):
@@ -44,18 +53,17 @@ if not os.path.exists(logdir):
 
 # Algorithm used for training
 algorithm = "PPO" 
-policy_network = "MultiInputLstmPolicy" # Policy network used for training
+policy_network = "MultiInputPolicy" # Policy network used for training
 
 # Training parameters
 learning_rate = 0.0001
-n_steps = 1024   
-batch_size = 128  
+n_steps = 1024
+batch_size = 128 
 ent_coef = 0.05      
 clip_range = 0.2
 max_grad_norm = 0.5
 use_sde = False
 sde_sample_freq = -1
-history_length = 5
 
 # Starting positions for the robot on the tracks
 # [track 1, track 2, track 3]
@@ -84,6 +92,9 @@ maxspeedlimit = 1.5
 # Robot ID in the simulation
 robot_id = 1
 
+
+LCD_Right_Print = 60
+
 # GYMNASIUM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
 # Custom environment for the robot simulation using OpenAI Gymnasium
@@ -94,28 +105,14 @@ class EyeSimEnv(gym.Env):
         # Float action space for robot linear speed, range from 0.0 to 1.0
         self.action_space = gym.spaces.Box(low=np.array([-0.1], dtype=np.float32), high=np.array([0.1], dtype=np.float32), dtype=np.float32)
 
-        # Image observation space, 3 channels (RGB), 120x160 pixels
+        self.history_length = 4
+
+        # Image observation space, 1 channels (Gray), 120x160 pixels
         self.observation_space = gym.spaces.Dict({
-            "image": gym.spaces.Box(
-                low=0, high=255, 
-                shape=(CAMHEIGHT, CAMWIDTH, 3), 
-                dtype=np.uint8
-            ),
-            "Current_Speed": gym.spaces.Box(
-                low=np.array([0.0], dtype=np.float32), 
-                high=np.array([1.0], dtype=np.float32), 
-                dtype=np.float32
-            ),    
-            "image_his": gym.spaces.Box(
-                low=0, high=255,
-                shape=(history_length, CAMHEIGHT, CAMWIDTH, 3),
-                dtype=np.uint8
-            ),
-            "speed_his": gym.spaces.Box(
-                low=0.0, high=1.0,
-                shape=(history_length, 1),
-                dtype=np.float32
-            )
+            "image":     gym.spaces.Box(low=0, high=255, shape=(1, CAMHEIGHT, CAMWIDTH), dtype=np.uint8),
+            "Current_Speed": gym.spaces.Box(low=0.0, high=maxspeedlimit, shape=(1,), dtype=np.float32),
+            "image_his": gym.spaces.Box(low=0, high=255, shape=(self.history_length, CAMHEIGHT, CAMWIDTH), dtype=np.uint8),
+            "speed_his": gym.spaces.Box(low=0.0, high=maxspeedlimit, shape=(self.history_length,), dtype=np.float32)
         })
         
         # Initialize class variables
@@ -123,26 +120,26 @@ class EyeSimEnv(gym.Env):
         self.speedlimit10_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the 10 limit sign
         self.speedlimit30_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the 30 limit sign
         self.timesteps = 0
-        self.Current_Speed = np.array([1.0], dtype=np.float32)
         self.speed_reached = False
         self.completed_stop = False
         self.stop_reached = False
-        self.observation_history = []
+        self.additional_buffer = 0.0
+        self.stop_position = 0.0
         self.stop_time = 0.0
-        self.image_his = np.zeros((history_length, CAMHEIGHT, CAMWIDTH, 3), dtype=np.uint8)
-        self.speed_his = np.zeros((history_length, 1), dtype=np.float32)
+
+        self.image_his = np.zeros((self.history_length, CAMHEIGHT, CAMWIDTH), dtype=np.uint8)
+        self.speed_his = np.zeros((self.history_length,), dtype=np.float32)
+        self.Current_Speed = np.array([1.0], dtype=np.float32)
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
         self.eyesim_reset()
-
-        frame = self.eyesim_get_observation()
-        speed = self.Current_Speed
-        self.image_his[:] = np.repeat(frame[np.newaxis, ...], history_length, axis=0)
-        self.speed_his[:] = np.repeat(speed[np.newaxis, ...], history_length, axis=0)
+        frame = self.eyesim_get_observation() 
+        self.image_his[:] = np.repeat(frame[0:1, :, :], self.history_length, axis=0)
+        self.speed_his.fill(self.Current_Speed[0])
 
         observation = {"image":frame,
-                    "Current_Speed": speed,
+                    "Current_Speed": self.Current_Speed,
                     "image_his": self.image_his,
                     "speed_his": self.speed_his
                     }
@@ -150,67 +147,70 @@ class EyeSimEnv(gym.Env):
         return observation, info
 
     def step(self, action):
+        reward = 0.0
         # Print action to LCD display
-        LCDSetPrintf(1,60,f"Action: {action[0]:.2f}")
+        LCDSetPrintf(1,LCD_Right_Print,f"Action: {action[0]:.2f}     ")
 
-        # self.timesteps += 1
-        # if self.timesteps == n_steps:
-        #     self.timesteps = 0
-        #     VWSetSpeed(0,0)
-
+        self.timesteps += 1
+        if self.timesteps == n_steps:
+            self.timesteps = 0
+            VWSetSpeed(0,0)
+            
         # Determine new current speed of the robot based on action
         self.Current_Speed = np.array([np.clip(self.Current_Speed[0] + action[0], 0.0, maxspeedlimit)], dtype=np.float32)
+        speed = self.Current_Speed[0].__float__()
 
         # Set robot linear and angular speed based on action
-        self.eyesim_set_robot_speed(self.Current_Speed[0]) 
+        self.eyesim_set_robot_speed(speed) 
 
+        # Get current position of robot
         position = self.eyesim_get_position()
 
-        # 3. Update history
+        # Obtain new image
         new_frame = self.eyesim_get_observation()
-        self.image_his[:-1] = self.image_his[1:]       # shift old frames
-        self.image_his[-1] = new_frame                 # add new frame
-
-        self.speed_his[:-1] = self.speed_his[1:]       # shift old speeds
-        self.speed_his[-1] = self.Current_Speed        # add new speed
+        # Shift history
+        self.image_his = np.roll(self.image_his, shift=-1, axis=0)
+        self.image_his[-1] = new_frame[0]                   # drop channel
+        self.speed_his = np.roll(self.speed_his, shift=-1)
+        self.speed_his[-1] = self.Current_Speed[0]
 
         # Calculate reward based on position
-        reward = self.calculate_speed_reward(self.Current_Speed[0], position) # Calculate the speed reward based on the speed
+        reward = self.calculate_speed_reward(speed, position) # Calculate the speed reward based on the speed
 
-        # Determine if the episode is done
+        # Determine if the episode is donea
         done = self.is_done(position)
         truncated = False
 
         # Build observation
         observation = {
-            "image": new_frame,
-            "Current_Speed": self.Current_Speed,
-            "image_his": self.image_his,
-            "speed_his": self.speed_his
+            "image": new_frame,                              # (1, H, W), uint8
+            "Current_Speed": self.Current_Speed.astype(np.float32),
+            "image_his": self.image_his,                    # (T, H, W), uint8
+            "speed_his": self.speed_his.astype(np.float32)
         }
-
+        
         # Create info dictionary to store additional information
         info = {"current velocity": self.Current_Speed[0]}
 
-        VWSetSpeed(0,0)
+
         return observation, reward, done, truncated, info
     
     def calculate_speed_reward(self, linear_speed, position):
-        LCDSetPrintf(2,60, f"Speed: {self.Current_Speed[0]:.2f}    ")
+        LCDSetPrintf(2,LCD_Right_Print, f"Speed: {self.Current_Speed[0]:.2f}    ")
         # Initialize score for speed control
         score = 0.0 
 
         # SPEED LIMIT 30 SIGN
         if self.track == 1:
             target_speed = speedlimit30
-            LCDSetPrintf(3, 60, f"Speedlimit: {target_speed}    ")
+            LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
 
             # --- Gradual ramp towards target before the sign ---
             if self.speedlimit30_position - buffer <= position <= self.speedlimit30_position:
                 ramp_factor = (position - (self.speedlimit30_position - buffer)) / buffer
                 gradual_target = basespeedlimit + ramp_factor * (target_speed - basespeedlimit)
 
-                LCDSetPrintf(3, 60, f"Speedlimit: {gradual_target:.2f}    ")
+                LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {gradual_target:.2f}    ")
                 score = reward_calculation(0.5, gradual_target, linear_speed)
 
             # --- After passing the sign, enforce speed limit ---
@@ -232,20 +232,20 @@ class EyeSimEnv(gym.Env):
             # --- Before ramp zone, stick to base speed ---
             else:
                 target_speed = basespeedlimit
-                LCDSetPrintf(3, 60, f"Speedlimit: {target_speed}    ")
+                LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
                 score = reward_calculation(0.5, target_speed, linear_speed)
 
         # SPEED LIMIT 10 SIGN
         elif self.track == 2:
             target_speed = speedlimit10
-            LCDSetPrintf(3, 60, f"Speedlimit: {target_speed}    ")
+            LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
 
             # --- Gradual ramp towards target before the sign ---
             if self.speedlimit10_position - buffer <= position <= self.speedlimit10_position:
                 ramp_factor = (position - (self.speedlimit10_position - buffer)) / buffer
                 gradual_target = basespeedlimit + ramp_factor * (target_speed - basespeedlimit)
 
-                LCDSetPrintf(3, 60, f"Speedlimit: {gradual_target:.2f}    ")
+                LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {gradual_target:.2f}    ")
                 score = reward_calculation(0.5, gradual_target, linear_speed)
 
             # --- After passing the sign, enforce speed limit ---
@@ -267,26 +267,26 @@ class EyeSimEnv(gym.Env):
             # --- Before ramp zone, stick to base speed ---
             else:
                 target_speed = basespeedlimit
-                LCDSetPrintf(3, 60, f"Speedlimit: {target_speed}    ")
+                LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
                 score = reward_calculation(0.5, target_speed, linear_speed)
 
         # STOP SIGN
         elif self.track == 3: 
             target_speed = 0.05
-            LCDSetPrintf(3, 60, f"Speedlimit: {target_speed}    ")
+            LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
 
             # --- Deceleration zone before full stop ---
             if (sign_x_positions[2] - buffer) <= position < (sign_x_positions[2] - stop_buffer):
-                ramp_factor = (position - (sign_x_positions[2] - buffer)) / buffer
+                ramp_factor = (position - (sign_x_positions[2] - buffer)) / (buffer - stop_buffer)
                 gradual_target = basespeedlimit + ramp_factor * (target_speed - basespeedlimit)
 
-                LCDSetPrintf(3, 60, f"Speedlimit: {gradual_target:.2f}    ")
+                LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {gradual_target:.2f}    ")
                 score = reward_calculation(0.5, gradual_target, linear_speed)
 
             # --- Stop enforcement zone (must hold for 2s) ---
-            elif (sign_x_positions[2] - stop_buffer) <= position <= sign_x_positions[2]:
+            elif (sign_x_positions[2] - stop_buffer) <= position <= sign_x_positions[2] + self.additional_buffer:
                 target_speed = 0.0
-                LCDSetPrintf(3, 60, f"Speedlimit: {target_speed}    ")
+                LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
 
                 if not self.completed_stop:
                     # Check if agent has reached near-zero speed
@@ -298,14 +298,16 @@ class EyeSimEnv(gym.Env):
                         else:
                             # Holding at stop
                             elapsed = time.time() - self.stop_time
-                            LCDSetPrintf(5, 60, f"Stop Time: {elapsed:.2f}s   ")
+                            LCDSetPrintf(5, LCD_Right_Print, f"Stop Time: {elapsed:.2f}s   ")
 
                             if elapsed >= 2.0:
                                 # Full stop completed
                                 self.stop_reached = False
                                 self.completed_stop = True
+                                self.stop_position = position
+                                self.additional_buffer = (self.stop_position - sign_x_positions[2] + buffer)
                                 score += 5.0
-                                LCDSetPrintf(5, 60, "Stop Completed        ")
+                                LCDSetPrintf(5, LCD_Right_Print, "Stop Completed        ")
                             else:
                                 score += 0.5  # reward holding each step
                     else:
@@ -321,35 +323,43 @@ class EyeSimEnv(gym.Env):
                 # --- After full stop completed, resume ---
                 else:
                     target_speed = basespeedlimit
-                    LCDSetPrintf(3, 60, f"Speedlimit: {target_speed}    ")
-                    score = reward_calculation(0.5, target_speed, linear_speed)
+                    ramp_factor = (position - self.stop_position) / buffer
+                    gradual_target = 0.0 + ramp_factor * (target_speed - 0.0)
+
+                    LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {gradual_target:.2f}    ")
+                    score = reward_calculation(0.5, gradual_target, linear_speed)
 
             # --- Before decel zone & after stop sign → normal driving ---
+            elif self.completed_stop == False and position > sign_x_positions[2]:
+                score += -5.0 # Heavy penalty for not stopping
+            
             else:
                 target_speed = basespeedlimit
-                LCDSetPrintf(3, 60, f"Speedlimit: {target_speed}    ")
+                LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
                 score = reward_calculation(0.5, target_speed, linear_speed)
 
 
 
-        LCDSetPrintf(4,60,f"Score: {round(score,2):.2f}    ") 
-        return round(score,2) # Return the speed score
+        LCDSetPrintf(4,LCD_Right_Print,f"Score: {round(score,2):.2f}    ")
+        return score # Return the speed score
         
 
     def is_done(self, position):
         # If the robot has reached the end of the track, return True
 
         if self.track == 1 and position >= (self.speedlimit30_position + buffer):
-            self.Current_Speed = np.array([1.0], dtype=np.float32) 
+            self.Current_Speed = np.array([basespeedlimit], dtype=np.float32) 
             return True
         if self.track == 2 and position >= (self.speedlimit10_position + buffer):
-            self.Current_Speed = np.array([1.0], dtype=np.float32) 
+            self.Current_Speed = np.array([basespeedlimit], dtype=np.float32) 
             return True
-        elif self.track == 3 and position >= (sign_x_positions[2] + buffer): 
-            self.Current_Speed = np.array([1.0], dtype=np.float32) 
+        elif self.track == 3 and position >= (sign_x_positions[2] + buffer + self.additional_buffer) or self.track == 3 and position >= sign_x_positions[2] and self.completed_stop == False: 
+            self.Current_Speed = np.array([basespeedlimit], dtype=np.float32) 
             # Reset completed stop flags
             self.completed_stop = False
             self.stop_reached = False
+            self.additional_buffer = 0.0
+            self.stop_position = 0.0
             return True
         return False
 
@@ -373,14 +383,14 @@ class EyeSimEnv(gym.Env):
     # Function to get the image from the camera and process it
     def eyesim_get_observation(self): 
         # Get image from camera
-        img = CAMGet() 
+        img = CAMGetGray() 
     
         # Process image
         processed_img = image_processing(img) 
 
         # Optional: Display the processed image on the LCD screen
         display_img = processed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
-        LCDImage(display_img)
+        LCDImageGray(display_img)
 
         return processed_img
 
@@ -416,6 +426,76 @@ def reward_calculation(max_reward, target_speed, current_speed):
     score = max_reward - 2*(abs(target_speed-current_speed)/range)*max_reward
     return score
 
+# CNN EXTRACTOR ---------------------------------------------------------------------------------------------------------
+
+class EyeSimExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Dict, features_dim: int = 256):
+        super().__init__(observation_space, features_dim)
+
+        # Shapes
+        C, H, W = observation_space.spaces["image"].shape
+        T = observation_space.spaces["image_his"].shape[0]
+
+        # CNN for current image
+        self.cnn = nn.Sequential(
+            nn.Conv2d(C, 16, kernel_size=3, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2),
+            nn.ReLU(),
+            nn.Flatten()
+        )
+
+        # Compute CNN output size
+        with th.no_grad():
+            n_flat = self.cnn(th.zeros(1, C, H, W)).shape[1]
+
+        # CNN for image history (process each frame independently, then flatten)
+        self.cnn_his = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=3, stride=2),
+            nn.ReLU(),
+            nn.Flatten()
+        )
+
+        with th.no_grad():
+            n_flat_his = self.cnn_his(th.zeros(1, 1, H, W)).shape[1]
+        n_flat_his *= T  # total features from all history frames
+
+        # MLP for speed
+        self.speed_net = nn.Sequential(
+            nn.Linear(1 + T, 32),  # Current_Speed + speed_his
+            nn.ReLU()
+        )
+
+        # Final fusion
+        self.fc = nn.Sequential(
+            nn.Linear(n_flat + n_flat_his + 32, features_dim),
+            nn.ReLU()
+        )
+
+    def forward(self, obs: dict) -> th.Tensor:
+        # Current image: (B, C, H, W)
+        img = obs["image"].float()  # make sure it's float
+        img_feat = self.cnn(img)
+
+        # Image history: (B, T, H, W) -> (B*T, 1, H, W)
+        B, T, H, W = obs["image_his"].shape
+        img_his = obs["image_his"].unsqueeze(2).float()  # (B, T, 1, H, W)
+        img_his = img_his.view(B * T, 1, H, W)
+        his_feat = self.cnn_his(img_his)
+        his_feat = his_feat.view(B, -1)  # (B, T*features_per_frame)
+
+        # Speed
+        speed_feat = self.speed_net(th.cat([obs["Current_Speed"].float(), obs["speed_his"].float()], dim=1))
+
+        # Combine all features
+        return self.fc(th.cat([img_feat, his_feat, speed_feat], dim=1))
+
+# Use custom extractor
+policy_kwargs = dict(
+    features_extractor_class=EyeSimExtractor,
+    features_extractor_kwargs=dict(features_dim=256)  # output dim for policy net
+)
+
 
 # INITIALIZE ----------------------------------------------------------------------------------------------------------------
 
@@ -438,7 +518,7 @@ def test():
     while True:
         action = env.action_space.sample()
         obs, reward, done, _, _= env.step(action)
-        print(f"Reward: {reward:.2f}, Action: {action[0]:.2f}, Done: {done}, Current Velocity: {obs['Current_Speed'][0]:.2f}")
+        print(f"Reward: {reward:.2f}, Action: {action[0]:.2f}, Done: {done}, Current Velocity: {obs['Current_Speed'][0]:.2f}, speed_history: {obs['speed_his'][0]}")
     
         if done: # If the episode is done, reset the environment
             env.reset()
@@ -456,45 +536,14 @@ def test():
 def train(): 
 
     # Define the PPO model with the specified parameters
-    model = RecurrentPPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps,
+    model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps, policy_kwargs=policy_kwargs,
                 learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef, 
                 clip_range=clip_range, max_grad_norm=max_grad_norm, use_sde=use_sde, sde_sample_freq=sde_sample_freq)
-    
-    # Early stopping parameters
-    max_iterations = 100
-    Patience = 5
-    stability_tolerance = 5
-    best_mean_reward = -float('inf')
-    recent_mean_rewards = []
-    no_improvement_epochs = 0
 
     # Train the model
-    for i in range(1,max_iterations+1): # Train the model
-        model.learn(total_timesteps=n_steps*10, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-        mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
-        print(f"Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
-
-        recent_mean_rewards.append(mean_reward)
-        if len(recent_mean_rewards) > stability_tolerance:
-            recent_mean_rewards.pop(0)
-        
-        if mean_reward > best_mean_reward:
-            best_mean_reward = mean_reward
-            no_improvement_epochs = 0
-            model.save(f"{models_dir}/linear_model")
-        
-        else:
-            no_improvement_epochs += 1
-        
-        if len(recent_mean_rewards) == Patience:
-            reward_variation = max(recent_mean_rewards) - min(recent_mean_rewards)
-            if reward_variation < 1.0:
-                print("Early stopping due to reward stability.")
-                break
-        
-        if no_improvement_epochs >= Patience:
-            print("Early stopping due to no improvement in mean reward.")
-            break
+    for i in range(1,21): # Train the model
+        model.learn(total_timesteps=n_steps*25, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+        model.save(f"{models_dir}/linear_model_{i}")
 
 
 
@@ -550,15 +599,19 @@ def load_train(model, iteration):
         key = KEYRead()
         # If the user presses the train key, continue training the model
         if key == KEY1:
-            for _ in range (0,training_count):
+            for i in range (0,training_count):
                 new_iteration += 1
+                LCDSetPrintf(10,LCD_Right_Print,f"New Model = {new_iteration}")
+                LCDSetPrintf(11,LCD_Right_Print,f"Remaining = {training_count-i}")
                 model.learn(total_timesteps=51200, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-                new_model = f"model_{new_iteration}"
+                new_model = f"linear_model_{new_iteration}"
                 model.save(f"{models_dir}/{new_model}")
         if key == KEY2:
             print(f"Training count: {training_count}")
+            LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
             while True:
                 LCDMenu("Up", "Down", "-", "Back")
+                LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
                 key = KEYRead()
                 if key == KEY1:
                     training_count += 1
@@ -578,7 +631,7 @@ def main():
     # Initialize the camera with QQVGA resolution (160x120)
     CAMInit(CAM_SETTING) 
     LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
-    LCDSetPrintf(0,60,"Linear Control")
+    LCDSetPrintf(0,LCD_Right_Print,"Linear Control")
 
     while True:
         LCDMenu("Train", "Test", "Load", "Quit")
@@ -591,10 +644,12 @@ def main():
         # Testing Menu
         elif key == KEY2: 
             while True:
-                LCDMenu("Env", "-", "Reset", "Back")
+                LCDMenu("Env", "check_env", "Reset", "Back")
                 key = KEYRead()
                 if key == KEY1: # Test the environment with random actions
                     test()
+                elif key == KEY2: # Check the environment for any issues
+                    check_env(env, warn=True)
                 if key == KEY3: # Reset the environment
                     env.reset()
                 elif key == KEY4: # Back to the main menu
@@ -607,6 +662,7 @@ def main():
             while True:
                 LCDMenu("Test", "Train", "Select", "Back")
                 key = KEYRead()
+                LCDSetPrintf(9,LCD_Right_Print,f"Loaded Model = {model_number} ")
                 if key == KEY1: # Load a pre-trained model for testing
                     if model != "None": load_test(model)
                     else: print("Please select model before testing.")
@@ -619,19 +675,20 @@ def main():
                         while(True):
                             LCDMenu("Up", "Down", "Latest", "Back")
                             key = KEYRead()
+                            LCDSetPrintf(9,LCD_Right_Print,f"Loaded Model = {model_number}")
                             if key == KEY1:
                                 if model_number < len(model_list): 
                                     model_number +=1
-                                    model = f"model_{model_number}.zip"
+                                    model = f"linear_model_{model_number}.zip"
                                 print(f"Selected model: {model_number}")
                             elif key == KEY2:
                                 if model_number > 1: 
                                     model_number -= 1
-                                    model = f"model_{model_number}.zip"
+                                    model = f"linear_model_{model_number}.zip"
                                 print(f"Selected model: {model_number}")
                             elif key == KEY3:
                                 model_number = most_recent_model
-                                model = f"model_{model_number}.zip"
+                                model = f"linear_model_{model_number}.zip"
                                 print(f"Selected model: {model_number}")
                             elif key == KEY4:
                                 break
