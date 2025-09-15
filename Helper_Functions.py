@@ -20,11 +20,11 @@ def find_latest_model(models_dir):
     previous_models = os.listdir(models_dir)
 
     # Filter only files matching pattern like model_123.zip
-    model_files = [f for f in previous_models if re.match(r"linear_model_\d+\.zip", f)]
+    model_files = [f for f in previous_models if re.match(r".*_model_\d+\.zip", f)]
 
     # Extract the number and find the model with the highest number
     def extract_model_number(filename):
-        match = re.search(r"linear_model_(\d+)\.zip", filename)
+        match = re.search(r".*_model_(\d+)\.zip", filename)
         return int(match.group(1)) if match else -1
 
     # Sort models by number
@@ -37,7 +37,7 @@ def find_latest_model(models_dir):
         print("No pre-trained model found.")
         return [], 0
     
-    iteration = (int(most_recent_model.split("l_")[1].split(".")[0])) if most_recent_model else 0
+    iteration = (int(most_recent_model.split("model_")[1].split(".")[0])) if most_recent_model else 0
 
     # If no pre-trained model is found, print a message and return
     if iteration == 0:
@@ -54,21 +54,6 @@ def load_map_points(file_path):
             # Convert string "(x, y, phi)" safely into a tuple
             map_points.append(ast.literal_eval(line.strip()))
     return map_points
-
-# IMAGE PROCESSING -------------------------------------------------------------------------------------------------------
-
-# Function to process the image from the camera
-def image_processing(image):
-    # Convert the image to a numpy array and reshape to (CAMHEIGHT, CAMWIDTH)
-    processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH))
-
-    # Resize to the exact camera dimensions (optional if already correct)
-    processed_image = cv2.resize(processed_image, (CAMWIDTH, CAMHEIGHT))
-
-    # Add a channel dimension for compatibility with Gym (H, W, 1)
-    processed_image = processed_image[np.newaxis, :, :]
-
-    return processed_image
 
 # EYESIM ------------------------------------------------------------------------------------------------------------------
 

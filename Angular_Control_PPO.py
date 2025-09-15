@@ -20,12 +20,11 @@ CAM_SETTING = QVGA
 CAMWIDTH = QVGA_X
 CAMHEIGHT = QVGA_Y
 
-# Current version of the code for saving models and logs
-version = 1.9
+LCD_Right_Print = 52
 
 # Directory paths for saving models and logs
-models_dir = f"models/Carolo/{version}/Angular"
-logdir = f"logs/Carolo/{version}/Angular"
+models_dir = f"models/Angular"
+logdir = f"logs/Angular"
 
 # Check if the models directory exists, if not create it
 if not os.path.exists(models_dir):
@@ -46,6 +45,7 @@ batch_size=128
 ent_coef=0.005
 clip_range=0.15
 max_grad_norm=0.25
+gamma = 0.99
 
 # INITIALISING TRACK ---------------------------------------------------------------------------------------------------
 
@@ -94,9 +94,10 @@ class EyeSimEnv(gym.Env):
         low = np.array([-1.0], dtype=np.float32)
         high = np.array([1.0], dtype=np.float32)
 
-        # Float action space for robot angular speed, range from -1 to 1
+        # Float action space for robot angular speed
         self.action_space = gym.spaces.Box(low=low, high=high, dtype=np.float32) 
-        # Image observation space, 3 channels (RGB), 120x160 pixels
+
+        # Image observation space
         self.observation_space = gym.spaces.Box(low=0, high=255, shape=(CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) 
         
         # Initialize variables
@@ -208,11 +209,11 @@ class EyeSimEnv(gym.Env):
             self.lap_count += 1
             if self.lap_count == 2:
                 if self.current_track == 1:
-                    print("setting track 1")
+                    LCDSetPrintf(2,LCD_Right_Print,"setting track 1")
                     set_track(2)
                     self.current_track = 2
                 else:
-                    print("setting track 1")
+                    LCDSetPrintf(2,LCD_Right_Print,"setting track 1")
                     set_track(1)
                     self.current_track = 1
                 self.lap_count = 0
@@ -230,16 +231,13 @@ class EyeSimEnv(gym.Env):
     # Function to get the image from the camera and process it
     def eyesim_get_observation(self): 
         # Get image from camera
-        img = CAMGet() 
-    
-        # Process image
-        processed_img = image_processing(img) 
+        image = CAMGet() 
+        LCDImage(image)
 
-        # Optional: Display the processed image on the LCD screen
-        display_img = processed_img.ctypes.data_as(ctypes.POINTER(ctypes.c_byte))
-        LCDImage(display_img)
+        # Convert the image to a numpy array and reshape to observation space
+        processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH, 3))
 
-        return processed_img
+        return processed_image
 
     def update_polygon(self):
         # Update the current and next polygon based on the current centroid
@@ -345,6 +343,7 @@ def test():
         # Stop the random actions
         if key == KEY4:
             VWSetSpeed(0,0)
+            LCDClear()
             break
 
 # TRAIN ---------------------------------------------------------------------------------------------------------------
@@ -354,44 +353,52 @@ def train():
 
     # Define the PPO model with the specified parameters
     model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps,
-                learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef, clip_range=clip_range, max_grad_norm=max_grad_norm)
+                learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef, 
+                clip_range=clip_range, max_grad_norm=max_grad_norm, gamma=gamma)
 
     # Train the model
     for i in range(4): # Train the model
         model.learn(total_timesteps=100*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-        model.save(f"{models_dir}/model_{i}")
+        model.save(f"{models_dir}/angular_model_{i}")
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 
 # Function to load a pre-trained model and test it
 def load_test(model): 
 
-    print(f"Loading model: {model}")
+    LCDSetPrintf(3,LCD_Right_Print,f"Loading model:     ")
+    LCDSetPrintf(4,LCD_Right_Print,f"{model[:-4]}     ")
 
     # Load the pre-trained model
     model_path = f"{models_dir}/{model}"
-    model = PPO.load(model_path, env=env)
+    loaded_model = PPO.load(model_path)
 
-    # Test the loaded model by taking actions based on the model's predictions
-    done = False
-    obs, _ = env.reset()
+    LCDSetPrintf(3,LCD_Right_Print,f"Loaded model:      ")
+    LCDSetPrintf(4,LCD_Right_Print,f"{model[:-4]}     ")
 
     # Continue testing the loaded model until the user decides to stop
     while True:
         LCDMenu("-", "-", "-", "Stop")
         key = KEYRead()
-        
-        # If the robot completes an episode, reset the environment
-        if done:
-            obs, _ = env.reset()
-            done = False
-        
-        # Predict the action using the loaded model
-        action, _ = model.predict(obs)
-        obs, _, done, _, _= env.step(action)
+
+        # Get image from camera and display it on LCD
+        image = CAMGet() 
+        LCDImage(image)
+    
+        # Convert the image to a numpy array
+        processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH, 3))
+
+        # Predict the action using the loaded model and given observation
+        action, _ = loaded_model.predict(processed_image, deterministic=False)
+        print(action)
+        LCDSetPrintf(5,LCD_Right_Print,f"Prediction: {round(float(action),2)}       ")
+        angular_speed = 200
+        VWSetSpeed(200,round(angular_speed*float(action))) # Set the speed of the robot
         
         # End testing if user presses the stop key
         if key == KEY4: 
+            LCDClear()
+            VWSetSpeed(0,0)
             break
     
 # LOAD AND TRAIN --------------------------------------------------------------------------------------------------------
@@ -399,25 +406,41 @@ def load_test(model):
 # Function to load a pre-trained model and continue training it
 def load_train(model, iteration): 
 
-
     print(f"Loading model: {model}")
 
     # Load the pre-trained model
     model_path = f"{models_dir}/{model}"
-    model = PPO.load(model_path, env=env)
+    model = PPO.load(model_path, env=env, tensorboard_log=logdir)
     new_iteration = iteration
+    training_count = 1
     # Continue training the model
     while True:
-        LCDMenu("Train", "-", "-", "Back")
+        LCDMenu("Train", "Set Training", "-", "Back")
         key = KEYRead()
-
         # If the user presses the train key, continue training the model
         if key == KEY1:
-            model.learn(total_timesteps=50*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-            new_model = f"model_{iteration}"
-            model.save(f"{models_dir}/{new_model}")
-            new_iteration += 1
-
+            for i in range (0,training_count):
+                new_iteration += 1
+                LCDSetPrintf(10,LCD_Right_Print,f"New Model = {new_iteration}")
+                LCDSetPrintf(11,LCD_Right_Print,f"Remaining = {training_count-i}")
+                model.learn(total_timesteps=51200, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+                new_model = f"angular_model_{new_iteration}"
+                model.save(f"{models_dir}/{new_model}")
+        if key == KEY2:
+            print(f"Training count: {training_count}")
+            LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
+            while True:
+                LCDMenu("Up", "Down", "-", "Back")
+                LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
+                key = KEYRead()
+                if key == KEY1:
+                    training_count += 1
+                    print(f"Training count: {training_count}")
+                elif key == KEY2:
+                    if training_count > 1: training_count -= 1
+                    print(f"Training count: {training_count}")
+                elif key == KEY4:
+                    break
         # If the user presses the back key, stop training and return to the main menu
         elif key == KEY4:
             break
@@ -425,10 +448,10 @@ def load_train(model, iteration):
 # MAIN -------------------------------------------------------------------------------------------------------
 
 def main():
-    # Initialize the camera with QQVGA resolution (160x120)
+    # Initialize the camera
     CAMInit(CAM_SETTING) 
     LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
-    LCDSetPrintf(0,60,"Angular Control")
+    LCDSetPrintf(0,LCD_Right_Print,"Angular Control")
 
     while True:
         LCDMenu("Train", "Test", "Load", "Quit")
@@ -456,16 +479,17 @@ def main():
                         key = KEYRead()
                         if key == KEY1:
                             if track < total_tracks: track +=1
-                            print(f"Selecting Track {track}")
+                            LCDSetPrintf(2,LCD_Right_Print,f"Selecting Track {track}")
                         elif key == KEY2:
                             if track > 1: track -=1
-                            print(f"Selecting Track {track}")
+                            LCDSetPrintf(2,LCD_Right_Print,f"Selecting Track {track}")
                         elif key == KEY3:
                             set_track(track)
                             for (x,y,phi) in left_centroids:
                                 SIMSetRobot(1,x,y,10,phi+180)
                                 time.sleep(0.1)
                         elif key == KEY4:
+                            LCDClear()
                             break
 
                 elif key == KEY4: # Back to the main menu
@@ -490,20 +514,21 @@ def main():
                         while(True):
                             LCDMenu("Up", "Down", "Latest", "Back")
                             key = KEYRead()
+                            LCDSetPrintf(20,LCD_Right_Print,f"Selected Model = {model_number}")
                             if key == KEY1:
-                                if model_number < len(model_list) - 1: 
+                                if model_number < len(model_list): 
                                     model_number +=1
-                                    model = f"model_{model_number}.zip"
-                                print(f"Selected model: {model_number}")
+                                    model = f"angular_model_{model_number}.zip"
+                                LCDSetPrintf(20,LCD_Right_Print,f"Selected Model = {model_number}")
                             elif key == KEY2:
-                                if model_number > 0: 
+                                if model_number > 1: 
                                     model_number -= 1
-                                    model = f"model_{model_number}.zip"
-                                print(f"Selected model: {model_number}")
+                                    model = f"angular_model_{model_number}.zip"
+                                LCDSetPrintf(20,LCD_Right_Print,f"Selected Model = {model_number}")
                             elif key == KEY3:
                                 model_number = most_recent_model
-                                model = f"model_{model_number}.zip"
-                                print(f"Selected model: {model_number}")
+                                model = f"angular_model_{model_number}.zip"
+                                LCDSetPrintf(20,LCD_Right_Print,f"Selected Model = {model_number}")
                             elif key == KEY4:
                                 break
                     else:
@@ -511,6 +536,7 @@ def main():
 
                 elif key == KEY4: # Back to the main menu
                     VWSetSpeed(0,0)
+                    LCDClear()
                     break
         
         # Stop the program
