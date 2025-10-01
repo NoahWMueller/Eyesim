@@ -1,19 +1,8 @@
 # Environment
-world Worlds/Multi_Track.wld
+world Worlds/Multi_Track_Painted.wld
 
 # load custom robots
 robot Updated_Robots/S4blue.robi
-robot Updated_Robots/S4red.robi
 
 # robotname x y phi
-S4blue 2000 2000 0
-
-# Objects for straight track training
-object C:\Users\noah\AppData\Local\Programs\EyeSim\Updated_Objects/StopSign/stopsign.esObj
-StopSign 2263 7307 45
-
-object C:\Users\noah\AppData\Local\Programs\EyeSim\Updated_Objects/SpeedLimitSign\speedlimitsign.esObj
-SpeedLimitSign 400 6386 45
-
-object C:\Users\noah\AppData\Local\Programs\EyeSim\Updated_Objects/SpeedLimitSign/10speedlimitsign.esObj
-10SpeedLimitSign 400 5465 45
+S4blue 280 2300 90

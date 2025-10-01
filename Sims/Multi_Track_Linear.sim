@@ -1,8 +1,7 @@
 # Environment
-world Worlds/Multi_Track.wld
+world Worlds/Multi_Track_Painted.wld
 
 # load custom robots
-robot Updated_Robots/S4blue.robi
 robot Updated_Robots/S4red.robi
 
 # robotname x y phi
