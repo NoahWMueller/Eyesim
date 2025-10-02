@@ -467,7 +467,7 @@ def LCDImageGray(img_gray):
 	return lib.LCDImageGray(img_gray)
 
 def LCDImageBinary(binary):
-	return lib.LCDImageGray(binary)
+	return lib.LCDImageBinary(binary)
 
 def LCDRefresh():
 	return lib.LCDRefresh()

@@ -12,6 +12,7 @@ import gymnasium as gym
 from random import randint
 from Helper_Functions import *
 from stable_baselines3 import PPO
+from stable_baselines3.common.env_checker import check_env
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
@@ -46,6 +47,10 @@ ent_coef=0.005
 clip_range=0.15
 max_grad_norm=0.25
 gamma = 0.99
+
+# Camera processing parameters
+threshold = 60
+DESIRED_CAMHEIGHT = CAMHEIGHT // 2
 
 # INITIALISING TRACK ---------------------------------------------------------------------------------------------------
 
@@ -94,11 +99,11 @@ class EyeSimEnv(gym.Env):
         low = np.array([-1.0], dtype=np.float32)
         high = np.array([1.0], dtype=np.float32)
 
-        # Float action space for robot angular speed
+        # Float action space for robot angular_action speed
         self.action_space = gym.spaces.Box(low=low, high=high, dtype=np.float32) 
 
         # Image observation space
-        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8) 
+        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(1,DESIRED_CAMHEIGHT,CAMWIDTH), dtype=np.uint8) 
         
         # Initialize variables
         self.current_centroid = 0
@@ -111,6 +116,7 @@ class EyeSimEnv(gym.Env):
         self.finish_centroid = len(self.current_centroids) - 1 # Finish centroid is the one before the current centroid
         self.current_track = 1
         self.lap_count = 0
+        self.previous_action = 0.0
 
         self.new_reset_point = (self.current_centroids[self.current_centroid][0],
                             self.current_centroids[self.current_centroid][1],
@@ -131,22 +137,24 @@ class EyeSimEnv(gym.Env):
 
     def step(self, action):
         self.timesteps += 1
-        angular = action[0] # linear and angular action
+        angular_action = action[0] # angular action
 
         # Determines if robot is inside left lane or has gotten lost
-        result1, result2 = self.eyesim_get_position() 
+        current_position, next_position = self.eyesim_get_position() 
         
         # Set robot linear and angular speed based on action
-        self.eyesim_set_robot_speed(angular) 
+        self.eyesim_set_robot_speed(angular_action) 
 
         # Read image from camera
         observation = self.eyesim_get_observation()
 
         # Calculate reward based on position
-        reward = self.calculate_drive_reward(result1, result2) # Calculate the drive reward based on the position
+        position_reward = self.calculate_drive_reward(current_position, next_position) # Calculate the drive reward based on the position
+        speed_reward = self.calculate_speed_change_penalty(angular_action) # Calculate the speed change penalty based on the action
+        reward = position_reward + speed_reward
 
         # Determine if the episode is done
-        done = self.is_done(result1,result2)
+        done = self.is_done(current_position,next_position)
 
         # Truncated is not used in this case, but included for compatibility with gym API
         truncated = False
@@ -161,12 +169,22 @@ class EyeSimEnv(gym.Env):
         if self.timesteps >= n_steps:
             self.timesteps = 0
             VWSetSpeed(0,0)
-        
+
+        self.previous_action = action
+
         return observation, reward, done, truncated, info
 
-    def calculate_drive_reward(self, result1, result2):
+    def calculate_speed_change_penalty(self, current_action):
+        # Calculate penalty based on the difference between target speed and current speed
+        speed_diff = abs(current_action - self.previous_action)
+        if speed_diff > 0.5:
+            return -0.1  # High penalty for large speed changes
+        else:
+            return 0.1  # Smaller penalty for smaller speed changes
+
+    def calculate_drive_reward(self, current_position, next_position):
         # If the robot is inside the next polygon, return a positive reward
-        if result2 > 0:
+        if next_position > 0:
             reward = 5.0
             # Update reset position
             if self.new_reset_point[3] < self.current_centroid: 
@@ -180,21 +198,21 @@ class EyeSimEnv(gym.Env):
             self.current_centroid = self.current_centroid + 1
 
             # Additional reward for making it to the end of the track
-            if self.current_centroid == len(self.current_centroids) - 1: reward += 15.0
+            if self.current_centroid == len(self.current_centroids) - 1: reward += 5.0
             self.update_polygon()
 
             return reward
         
         # If the robot is inside neither  polygon, return a big negative reward
-        elif result1 < 0 and result2 < 0: 
+        elif current_position < 0 and next_position < 0: 
             return -10.0
         # If the robot is inside the current polygon, return no reward
         else:
             return 0.0
 
-    def is_done(self, result1, result2):
+    def is_done(self, current_position, next_position):
         # Determine if the robot left all allowable polygons
-        if (result1 == -1 and result2 == -1) or self.lap_check(): 
+        if (current_position == -1 and next_position == -1) or self.lap_check(): 
             return True
         else: 
             return False
@@ -223,21 +241,29 @@ class EyeSimEnv(gym.Env):
             return False
 
     # Function to set the speed of the robot based on the action taken
-    def eyesim_set_robot_speed(self, angular): 
+    def eyesim_set_robot_speed(self, angular_action): 
         # Set the speed of the robot based on the action taken
         angular_speed = 200
-        VWSetSpeed(200,round(angular_speed*angular)) # Set the speed of the robot
+        VWSetSpeed(200,round(angular_speed*angular_action)) # Set the speed of the robot
 
     # Function to get the image from the camera and process it
     def eyesim_get_observation(self): 
         # Get image from camera
-        image = CAMGet() 
-        LCDImage(image)
+        image = CAMGetGray()
 
         # Convert the image to a numpy array and reshape to observation space
-        processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH, 3))
+        processed_image = np.asarray(image, dtype=np.uint8).reshape((1, CAMHEIGHT, CAMWIDTH))
 
-        return processed_image
+        # Apply thresholding to convert to a binary 
+        binary_image = np.where(processed_image > threshold, 255, 0).astype(np.uint8)
+
+        # Crop the image to the desired height
+        cropped_image = binary_image[:,DESIRED_CAMHEIGHT:, :]        
+
+        # Convert the cropped image to a ctypes pointer for LCD display
+        LCDImageGray(cropped_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
+        
+        return cropped_image
 
     def update_polygon(self):
         # Update the current and next polygon based on the current centroid
@@ -356,11 +382,39 @@ def train():
                 learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef, 
                 clip_range=clip_range, max_grad_norm=max_grad_norm, gamma=gamma)
 
-    # Train the model
-    for i in range(4): # Train the model
-        model.learn(total_timesteps=100*n_steps, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-        model.save(f"{models_dir}/angular_model_{i}")
-
+    new_iteration = 0
+    training_count = 1
+    # Continue training the model
+    while True:
+        LCDMenu("Train", "Set Training", "-", "Back")
+        key = KEYRead()
+        # If the user presses the train key, continue training the model
+        if key == KEY1:
+            for i in range (0,training_count):
+                new_iteration += 1
+                LCDSetPrintf(10,LCD_Right_Print,f"New Model = {new_iteration}")
+                LCDSetPrintf(11,LCD_Right_Print,f"Remaining = {training_count-i}")
+                model.learn(total_timesteps=25*n_steps, progress_bar=True, reset_num_timesteps=False)
+                new_model = f"angular_model_{new_iteration}"
+                model.save(f"{models_dir}/{new_model}")
+        if key == KEY2:
+            print(f"Training count: {training_count}")
+            LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
+            while True:
+                LCDMenu("Up", "Down", "-", "Back")
+                LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
+                key = KEYRead()
+                if key == KEY1:
+                    training_count += 1
+                    print(f"Training count: {training_count}")
+                elif key == KEY2:
+                    if training_count > 1: training_count -= 1
+                    print(f"Training count: {training_count}")
+                elif key == KEY4:
+                    break
+        # If the user presses the back key, stop training and return to the main menu
+        elif key == KEY4:
+            break
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 
 # Function to load a pre-trained model and test it
@@ -450,7 +504,7 @@ def load_train(model, iteration):
 def main():
     # Initialize the camera
     CAMInit(CAM_SETTING) 
-    LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
+    LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
     LCDSetPrintf(0,LCD_Right_Print,"Angular Control")
 
     while True:
@@ -464,13 +518,13 @@ def main():
         # Testing Menu
         elif key == KEY2: 
             while True:
-                LCDMenu("Env", "Reset", "Track", "Back")
+                LCDMenu("Env", "check_env", "Track", "Back")
                 key = KEYRead()
 
                 if key == KEY1: # Test the environment with random actions
                     test()
-                elif key == KEY2: # Reset the environment
-                    env.reset()
+                elif key == KEY2: # Check the environment for any issues
+                    check_env(env, warn=True)
                 
                 elif key == KEY3:
                     track = 1

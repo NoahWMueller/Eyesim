@@ -3,9 +3,6 @@
 # TO-DO --------------------------------------------------------------------------------------------------------------
 
 """
-
-linear speed stack
-
 ## look into this ##
 Eval callback saves best model based on mean reward 
 eval_callback = EvalCallback(eval_env, best_model_save_path=models_dir,
@@ -17,6 +14,7 @@ eval_callback = EvalCallback(eval_env, best_model_save_path=models_dir,
 
 import time
 import math
+import random
 from eye import *
 import gymnasium as gym
 from random import randint
@@ -51,7 +49,7 @@ algorithm = "PPO"
 policy_network = "MultiInputPolicy" # Policy network used for training
 
 # Training parameters
-learning_rate = 0.0001
+learning_rate = 0.0003
 n_steps = 2048
 batch_size = 256 
 ent_coef = 0.05
@@ -71,20 +69,21 @@ sign_y_positions = [5465, 6386, 7307]
 max_distance = 4300
 
 # Distance buffer for sign recognition
-buffer = 400
+buffer = 300
 stop_buffer = 100
 
 # Assigned values for speed limits
-basespeedlimit = 1.0
 speedlimit10 = 0.5
 speedlimit30 = 0.7
 maxspeedlimit = 1.5
+minspeedlimit = 0.4
 
 # Robot ID in the simulation
 robot_id = 1
 
 # LCD print position
 LCD_Right_Print = 52
+
 
 # GYMNASIUM ENVIRONMENT --------------------------------------------------------------------------------------------------------
 
@@ -111,6 +110,8 @@ class EyeSimEnv(gym.Env):
         self.completed_stop = False
         self.speed_reached = False
         self.stop_position = 0.0
+        self.base_speedlimit = round(random.uniform(minspeedlimit, maxspeedlimit), 1)
+        self.threshold = 110
         
         # Additionally variable to stop robot movement when episode finishes
         self.timesteps = 0
@@ -125,8 +126,8 @@ class EyeSimEnv(gym.Env):
 
         image = self.eyesim_get_observation()
         self.image_history[:] = np.repeat(image[0:1, :, :], self.history_length, axis=0)
-        # Initialize speed history with a single value (e.g., 0.0 or basespeedlimit)
-        self.speed_history[:] = np.full(self.history_length, basespeedlimit, dtype=np.float32)
+        # Initialize speed history with a single value
+        self.speed_history[:] = np.full(self.history_length, self.base_speedlimit, dtype=np.float32)
         
         observation = {"image_history": self.image_history, "speed_history": self.speed_history}
 
@@ -165,7 +166,7 @@ class EyeSimEnv(gym.Env):
 
         # Determine if the episode is done
         done = self.is_done(position)
-        truncated = False
+        truncated = done
 
         # Build observation stack
         observation = {"image_history": self.image_history, "speed_history": self.speed_history}
@@ -188,22 +189,21 @@ class EyeSimEnv(gym.Env):
             # Gradual change towards target before the sign 
             if self.speedlimit30_position - buffer <= position <= self.speedlimit30_position:
                 ramp_factor = (position - (self.speedlimit30_position - buffer)) / buffer
-                gradual_target = basespeedlimit + ramp_factor * (target_speed - basespeedlimit)
+                gradual_target = self.base_speedlimit + ramp_factor * (target_speed - self.base_speedlimit)
 
                 LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {gradual_target:.2f}    ")
                 score += reward_calculation(gradual_target, linear_speed)
 
             # After passing the sign, enforce speed limit 
-            elif position > self.speedlimit10_position:
+            elif position > self.speedlimit30_position:
                 if linear_speed - target_speed == linear_speed and not self.speed_reached:
                     self.speed_reached = True
                     score += 2.0  # big bonus for reaching the correct speed for the first time
                 score += reward_calculation(target_speed, linear_speed)
 
-
             # Before speed change zone, stick to base speed 
             else:
-                target_speed = basespeedlimit
+                target_speed = self.base_speedlimit
                 LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
                 score += reward_calculation(target_speed, linear_speed)
 
@@ -215,7 +215,7 @@ class EyeSimEnv(gym.Env):
             # Gradual change towards target before the sign 
             if self.speedlimit10_position - buffer <= position <= self.speedlimit10_position:
                 ramp_factor = (position - (self.speedlimit10_position - buffer)) / buffer
-                gradual_target = basespeedlimit + ramp_factor * (target_speed - basespeedlimit)
+                gradual_target = self.base_speedlimit + ramp_factor * (target_speed - self.base_speedlimit)
 
                 LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {gradual_target:.2f}    ")
                 score += reward_calculation(gradual_target, linear_speed)
@@ -229,7 +229,7 @@ class EyeSimEnv(gym.Env):
                 
             # Before speed change zone, stick to base speed 
             else:
-                target_speed = basespeedlimit
+                target_speed = self.base_speedlimit
                 LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
                 score += reward_calculation(target_speed, linear_speed)
 
@@ -241,7 +241,7 @@ class EyeSimEnv(gym.Env):
             # Deceleration zone before full stop 
             if (sign_x_positions[2] - buffer) <= position < (sign_x_positions[2] - stop_buffer):
                 ramp_factor = (position - (sign_x_positions[2] - buffer)) / (buffer - stop_buffer)
-                gradual_target = basespeedlimit + ramp_factor * (target_speed - basespeedlimit)
+                gradual_target = self.base_speedlimit + ramp_factor * (target_speed - self.base_speedlimit)
 
                 LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {gradual_target:.2f}    ")
                 score += reward_calculation(gradual_target, linear_speed)
@@ -261,14 +261,14 @@ class EyeSimEnv(gym.Env):
                 score += reward_calculation(target_speed, linear_speed)
 
             elif self.completed_stop:
-                target_speed = basespeedlimit
+                target_speed = self.base_speedlimit
                 ramp_factor = (position - self.stop_position) / buffer
                 gradual_target = ramp_factor * (target_speed)
 
                 LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {gradual_target:.2f}    ")
                 score += reward_calculation(gradual_target, linear_speed)
             else:
-                target_speed = basespeedlimit
+                target_speed = self.base_speedlimit
                 LCDSetPrintf(3, LCD_Right_Print, f"Speedlimit: {target_speed}    ")
                 score += reward_calculation(target_speed, linear_speed)
 
@@ -279,24 +279,31 @@ class EyeSimEnv(gym.Env):
     def is_done(self, position):
         # If the robot has reached the end of the track or completed an episode
         if self.track == 1 and position >= (self.speedlimit30_position + buffer):
-            self.speed_history[:] = np.full(self.history_length, basespeedlimit, dtype=np.float32)
+            self.base_speedlimit = round(random.uniform(minspeedlimit, maxspeedlimit), 1) 
+            self.speed_history[:] = np.full(self.history_length, self.base_speedlimit, dtype=np.float32)
             self.speed_reached = False
+            LCDClear()
             return True
         
         elif self.track == 2 and position >= (self.speedlimit10_position + buffer):
-            self.speed_history[:] = np.full(self.history_length, basespeedlimit, dtype=np.float32)
+            self.base_speedlimit = round(random.uniform(minspeedlimit, maxspeedlimit), 1) 
+            self.speed_history[:] = np.full(self.history_length, self.base_speedlimit, dtype=np.float32)
             self.speed_reached = False
+            LCDClear()
             return True
         
-        elif self.track == 3 and (position >= self.stop_position + buffer or (position >= sign_x_positions[2] and self.completed_stop == False)): 
-            self.speed_history[:] = np.full(self.history_length, basespeedlimit, dtype=np.float32)
+        elif self.track == 3 and ((position >= self.stop_position + buffer and self.completed_stop) or (position >= sign_x_positions[2] and not self.completed_stop)):
+            self.base_speedlimit = round(random.uniform(minspeedlimit, maxspeedlimit), 1) 
+            self.speed_history[:] = np.full(self.history_length, self.base_speedlimit, dtype=np.float32)
             self.completed_stop = False
             self.stop_position = 0.0
+            LCDClear()
             return True
         
         elif self.timesteps == n_steps:
             self.timesteps = 0
             VWSetSpeed(0,0)
+            LCDClear()
             return True
         
         return False
@@ -321,16 +328,18 @@ class EyeSimEnv(gym.Env):
     # Function to get the image from the camera and process it
     def eyesim_get_observation(self): 
         # Get image from camera
-        image = CAMGetGray() 
-        LCDImageGray(image)
-    
-        # Convert the image to a numpy array and reshape to (CAMHEIGHT, CAMWIDTH)
-        processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH))
-        
-        # Add a channel dimension for compatibility with Gym (H, W, 1)
-        processed_image = processed_image[np.newaxis, :, :]
+        image = CAMGetGray()
 
-        return processed_image
+        # Convert the image to a numpy array and reshape to observation space
+        processed_image = np.asarray(image, dtype=np.uint8).reshape((1, CAMHEIGHT, CAMWIDTH))
+
+        # Apply thresholding to convert to a binary 
+        binary_image = np.where(processed_image > self.threshold, 255, 0).astype(np.uint8)   
+        
+        # Convert the cropped image to a ctypes pointer for LCD display
+        LCDImageGray(binary_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
+        
+        return binary_image
 
     # Function to reset the robot and can positions in the simulation "C:\Users\noah\AppData\Local\Programs\EyeSim\EyeSim.exe"
     def eyesim_reset(self): 
@@ -338,7 +347,11 @@ class EyeSimEnv(gym.Env):
         VWSetSpeed(0,0)
 
         # Randomly select a track for the robot to follow
-        self.track = (self.track % 3) + 1 # Cycle through tracks 1, 2, and 3
+        self.track = (self.track % 3) + 1
+        if self.track == 3:
+            self.threshold = 80
+        else:
+            self.threshold = 110
         self.speedlimit10_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the sign
         self.speedlimit30_position = randint(sign_x_positions[0], sign_x_positions[1]) # Randomly select a position for the sign
 
@@ -452,6 +465,7 @@ def test():
         key = KEYRead()
         if key == KEY4:
             VWSetSpeed(0,0)
+            LCDClear()
             break
 
 # TRAIN ---------------------------------------------------------------------------------------------------------------
@@ -462,11 +476,43 @@ def train():
     # Define the PPO model with the specified parameters
     model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps, policy_kwargs=policy_kwargs,
                 learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef)
+    
+    # stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=3, min_evals=5, verbose=1)
+    # eval_callback = EvalCallback(env, eval_freq=n_steps*20, callback_after_eval=stop_train_callback, verbose=1)
 
-    # Train the model
-    for i in range(1,21): # Train the model
-        model.learn(total_timesteps=n_steps*25, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
-        model.save(f"{models_dir}/linear_model_{i}")
+
+    training_count = 1
+    # Continue training the model
+    while True:
+        LCDMenu("Train", "Set Training", "-", "Back")
+        key = KEYRead()
+        # If the user presses the train key, continue training the model
+        if key == KEY1:
+            for i in range (1,training_count+1):
+                LCDSetPrintf(10,LCD_Right_Print,f"New Model = {i}               ")
+                LCDSetPrintf(11,LCD_Right_Print,f"Remaining = {training_count-i}            ")
+                model.learn(total_timesteps=n_steps*25, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+                new_model = f"linear_model_{i}"
+                model.save(f"{models_dir}/{new_model}")
+        if key == KEY2:
+            print(f"Training count: {training_count}")
+            LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}         ")
+            while True:
+                LCDMenu("Up", "Down", "-", "Back")
+                LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}         ")
+                key = KEYRead()
+                if key == KEY1:
+                    training_count += 1
+                    print(f"Training count: {training_count}        ")
+                elif key == KEY2:
+                    if training_count > 1: training_count -= 1
+                    print(f"Training count: {training_count}        ")
+                elif key == KEY4:
+                    break
+        # If the user presses the back key, stop training and return to the main menu
+        elif key == KEY4:
+            LCDClear()
+            break
 
 # LOAD ---------------------------------------------------------------------------------------------------------------- 
 
@@ -496,10 +542,11 @@ def load_test(model):
         # Predict the action using the loaded model
         action, _ = model.predict(obs)
         obs, reward, done, _, _= env.step(action)
-        print(f"Reward: {reward}, Action: {action}")
+        print(f"Reward: {reward:.2f}, Action: {action[0]:.2f}, Done: {done}, Current Velocity: {obs['speed_history']}")
 
         # End testing if user presses the stop key
         if key == KEY4: 
+            LCDClear()
             break
 
 # LOAD AND TRAIN --------------------------------------------------------------------------------------------------------
@@ -520,30 +567,31 @@ def load_train(model, iteration):
         key = KEYRead()
         # If the user presses the train key, continue training the model
         if key == KEY1:
-            for i in range (0,training_count):
+            for i in range (1,training_count):
                 new_iteration += 1
-                LCDSetPrintf(10,LCD_Right_Print,f"New Model = {new_iteration}")
-                LCDSetPrintf(11,LCD_Right_Print,f"Remaining = {training_count-i}")
-                model.learn(total_timesteps=51200, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
+                LCDSetPrintf(10,LCD_Right_Print,f"New Model = {new_iteration}               ")
+                LCDSetPrintf(11,LCD_Right_Print,f"Remaining = {training_count-i}            ")
+                model.learn(total_timesteps=n_steps*25, progress_bar=True, reset_num_timesteps=False, tb_log_name=f"{algorithm}")
                 new_model = f"linear_model_{new_iteration}"
                 model.save(f"{models_dir}/{new_model}")
         if key == KEY2:
             print(f"Training count: {training_count}")
-            LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
+            LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}         ")
             while True:
                 LCDMenu("Up", "Down", "-", "Back")
-                LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
+                LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}         ")
                 key = KEYRead()
                 if key == KEY1:
                     training_count += 1
-                    print(f"Training count: {training_count}")
+                    print(f"Training count: {training_count}        ")
                 elif key == KEY2:
                     if training_count > 1: training_count -= 1
-                    print(f"Training count: {training_count}")
+                    print(f"Training count: {training_count}        ")
                 elif key == KEY4:
                     break
         # If the user presses the back key, stop training and return to the main menu
         elif key == KEY4:
+            LCDClear()
             break
 
 # MAIN -------------------------------------------------------------------------------------------------------
@@ -552,7 +600,7 @@ def main():
     # Initialize the camera with QQVGA resolution (160x120)
     CAMInit(CAM_SETTING) 
     LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
-    LCDSetPrintf(0,LCD_Right_Print,"Linear Control")
+    LCDSetPrintf(0,LCD_Right_Print,"Linear Control          ")
 
     while True:
         LCDMenu("Train", "Test", "Load", "Quit")
@@ -583,7 +631,7 @@ def main():
             while True:
                 LCDMenu("Test", "Train", "Select", "Back")
                 key = KEYRead()
-                LCDSetPrintf(9,LCD_Right_Print,f"Loaded Model = {model_number} ")
+                LCDSetPrintf(9,LCD_Right_Print,f"Loaded Model = {model_number}       ")
                 if key == KEY1: # Load a pre-trained model for testing
                     if model != "None": load_test(model)
                     else: print("Please select model before testing.")
@@ -596,21 +644,21 @@ def main():
                         while(True):
                             LCDMenu("Up", "Down", "Latest", "Back")
                             key = KEYRead()
-                            LCDSetPrintf(9,LCD_Right_Print,f"Selected Model = {model_number}")
+                            LCDSetPrintf(9,LCD_Right_Print,f"Selected Model = {model_number}        ")
                             if key == KEY1:
                                 if model_number < len(model_list): 
                                     model_number +=1
                                     model = f"linear_model_{model_number}.zip"
-                                LCDSetPrintf(9,LCD_Right_Print,f"Selected Model = {model_number}")
+                                LCDSetPrintf(9,LCD_Right_Print,f"Selected Model = {model_number}        ")
                             elif key == KEY2:
                                 if model_number > 1: 
                                     model_number -= 1
                                     model = f"linear_model_{model_number}.zip"
-                                LCDSetPrintf(9,LCD_Right_Print,f"Selected Model = {model_number}")
+                                LCDSetPrintf(9,LCD_Right_Print,f"Selected Model = {model_number}        ")
                             elif key == KEY3:
                                 model_number = most_recent_model
                                 model = f"linear_model_{model_number}.zip"
-                                LCDSetPrintf(9,LCD_Right_Print,f"Selected Model = {model_number}")
+                                LCDSetPrintf(9,LCD_Right_Print,f"Selected Model = {model_number}        ")
                             elif key == KEY4:
                                 break
                     else:
