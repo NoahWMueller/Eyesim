@@ -24,8 +24,8 @@ CAMHEIGHT = QVGA_Y
 LCD_Right_Print = 52
 
 # Directory paths for saving models and logs
-models_dir = f"models/Angular"
-logdir = f"logs/Angular"
+models_dir = f"models/Binary_Angular"
+logdir = f"logs/Binary_Angular"
 
 # Check if the models directory exists, if not create it
 if not os.path.exists(models_dir):
@@ -40,14 +40,8 @@ algorithm = "PPO"
 policy_network = "CnnPolicy" # Policy network used for training
 
 # Training parameters
-learning_rate=0.0001
+learning_rate=0.0003
 n_steps=2048
-batch_size=128
-ent_coef=0.005
-clip_range=0.15
-max_grad_norm=0.25
-gamma = 0.99
-
 # Camera processing parameters
 threshold = 60
 DESIRED_CAMHEIGHT = CAMHEIGHT // 2
@@ -117,6 +111,7 @@ class EyeSimEnv(gym.Env):
         self.current_track = 1
         self.lap_count = 0
         self.previous_action = 0.0
+        self.total_resets = 0
 
         self.new_reset_point = (self.current_centroids[self.current_centroid][0],
                             self.current_centroids[self.current_centroid][1],
@@ -150,8 +145,7 @@ class EyeSimEnv(gym.Env):
 
         # Calculate reward based on position
         position_reward = self.calculate_drive_reward(current_position, next_position) # Calculate the drive reward based on the position
-        speed_reward = self.calculate_speed_change_penalty(angular_action) # Calculate the speed change penalty based on the action
-        reward = position_reward + speed_reward
+        reward = position_reward
 
         # Determine if the episode is done
         done = self.is_done(current_position,next_position)
@@ -174,14 +168,6 @@ class EyeSimEnv(gym.Env):
 
         return observation, reward, done, truncated, info
 
-    def calculate_speed_change_penalty(self, current_action):
-        # Calculate penalty based on the difference between target speed and current speed
-        speed_diff = abs(current_action - self.previous_action)
-        if speed_diff > 0.5:
-            return -0.1  # High penalty for large speed changes
-        else:
-            return 0.1  # Smaller penalty for smaller speed changes
-
     def calculate_drive_reward(self, current_position, next_position):
         # If the robot is inside the next polygon, return a positive reward
         if next_position > 0:
@@ -190,9 +176,16 @@ class EyeSimEnv(gym.Env):
             if self.new_reset_point[3] < self.current_centroid: 
                 self.reset_point = self.new_reset_point
                 self.new_reset_point = (SIMGetRobot(1)[0].value, SIMGetRobot(1)[1].value, abs(360 - SIMGetRobot(1)[3].value)-180, self.current_centroid)
+                self.total_resets = 0
 
             elif self.new_reset_point[3] == self.current_centroid: 
                 self.new_reset_point = (SIMGetRobot(1)[0].value, SIMGetRobot(1)[1].value, abs(360 - SIMGetRobot(1)[3].value)-180, self.current_centroid)
+
+            if self.total_resets >= 5:
+                # Calculate the difference in coordinates
+                self.new_reset_point = (self.current_centroids[self.current_centroid][0], self.current_centroids[self.current_centroid][1], self.current_centroids[self.current_centroid][2], self.current_centroid)
+                self.reset_point = self.new_reset_point
+                self.total_resets = 0
 
             # update centroid and previous polygon to current polygon
             self.current_centroid = self.current_centroid + 1
@@ -213,6 +206,7 @@ class EyeSimEnv(gym.Env):
     def is_done(self, current_position, next_position):
         # Determine if the robot left all allowable polygons
         if (current_position == -1 and next_position == -1) or self.lap_check(): 
+            self.total_resets += 1
             return True
         else: 
             return False
@@ -227,11 +221,11 @@ class EyeSimEnv(gym.Env):
             self.lap_count += 1
             if self.lap_count == 2:
                 if self.current_track == 1:
-                    LCDSetPrintf(2,LCD_Right_Print,"setting track 1")
+                    LCDSetPrintf(2,LCD_Right_Print,"setting track 2      ")
                     set_track(2)
                     self.current_track = 2
                 else:
-                    LCDSetPrintf(2,LCD_Right_Print,"setting track 1")
+                    LCDSetPrintf(2,LCD_Right_Print,"setting track 1      ")
                     set_track(1)
                     self.current_track = 1
                 self.lap_count = 0
@@ -252,18 +246,21 @@ class EyeSimEnv(gym.Env):
         image = CAMGetGray()
 
         # Convert the image to a numpy array and reshape to observation space
-        processed_image = np.asarray(image, dtype=np.uint8).reshape((1, CAMHEIGHT, CAMWIDTH))
+        processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH))
 
         # Apply thresholding to convert to a binary 
         binary_image = np.where(processed_image > threshold, 255, 0).astype(np.uint8)
 
         # Crop the image to the desired height
-        cropped_image = binary_image[:,DESIRED_CAMHEIGHT:, :]        
+        cropped_image = binary_image[DESIRED_CAMHEIGHT:, :]  
 
+        # Add a channel dimension for compatibility with Gym
+        processed_image = cropped_image[np.newaxis, :, :]
+ 
         # Convert the cropped image to a ctypes pointer for LCD display
         LCDImageGray(cropped_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
         
-        return cropped_image
+        return processed_image
 
     def update_polygon(self):
         # Update the current and next polygon based on the current centroid
@@ -338,7 +335,6 @@ class EyeSimEnv(gym.Env):
 # Register the environment with gymnasium and create an instance of it
 env_id = "gymnasium_env/AngularEnv"
 
-
 # Check if the environment is already registered, if not register it
 if env_id not in gym.registry:
     gym.register(
@@ -379,8 +375,7 @@ def train():
 
     # Define the PPO model with the specified parameters
     model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps,
-                learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef, 
-                clip_range=clip_range, max_grad_norm=max_grad_norm, gamma=gamma)
+                learning_rate=learning_rate, use_sde=True, sde_sample_freq=4)
 
     new_iteration = 0
     training_count = 1
@@ -392,24 +387,24 @@ def train():
         if key == KEY1:
             for i in range (0,training_count):
                 new_iteration += 1
-                LCDSetPrintf(10,LCD_Right_Print,f"New Model = {new_iteration}")
-                LCDSetPrintf(11,LCD_Right_Print,f"Remaining = {training_count-i}")
+                LCDSetPrintf(10,LCD_Right_Print,f"New Model = {new_iteration}     ")
+                LCDSetPrintf(11,LCD_Right_Print,f"Remaining = {training_count-i}     ")
                 model.learn(total_timesteps=25*n_steps, progress_bar=True, reset_num_timesteps=False)
                 new_model = f"angular_model_{new_iteration}"
                 model.save(f"{models_dir}/{new_model}")
         if key == KEY2:
-            print(f"Training count: {training_count}")
-            LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
+            print(f"Training count: {training_count     }")
+            LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}     ")
             while True:
                 LCDMenu("Up", "Down", "-", "Back")
-                LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}")
+                LCDSetPrintf(12,LCD_Right_Print,f"Training count = {training_count}     ")
                 key = KEYRead()
                 if key == KEY1:
                     training_count += 1
-                    print(f"Training count: {training_count}")
+                    print(f"Training count: {training_count}     ")
                 elif key == KEY2:
                     if training_count > 1: training_count -= 1
-                    print(f"Training count: {training_count}")
+                    print(f"Training count: {training_count}     ")
                 elif key == KEY4:
                     break
         # If the user presses the back key, stop training and return to the main menu
@@ -435,16 +430,23 @@ def load_test(model):
         LCDMenu("-", "-", "-", "Stop")
         key = KEYRead()
 
-        # Get image from camera and display it on LCD
-        image = CAMGet() 
-        LCDImage(image)
-    
-        # Convert the image to a numpy array
-        processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH, 3))
+        # Get image from camera
+        image = CAMGetGray()
+
+        # Convert the image to a numpy array and reshape to observation space
+        processed_image = np.asarray(image, dtype=np.uint8).reshape((1, CAMHEIGHT, CAMWIDTH))
+
+        # Apply thresholding to convert to a binary 
+        binary_image = np.where(processed_image > threshold, 255, 0).astype(np.uint8)
+
+        # Crop the image to the desired height
+        cropped_image = binary_image[:,DESIRED_CAMHEIGHT:, :]        
+
+        # Convert the cropped image to a ctypes pointer for LCD display
+        LCDImageGray(cropped_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
 
         # Predict the action using the loaded model and given observation
-        action, _ = loaded_model.predict(processed_image, deterministic=False)
-        print(action)
+        action, _ = loaded_model.predict(cropped_image, deterministic=True)
         LCDSetPrintf(5,LCD_Right_Print,f"Prediction: {round(float(action),2)}       ")
         angular_speed = 200
         VWSetSpeed(200,round(angular_speed*float(action))) # Set the speed of the robot
