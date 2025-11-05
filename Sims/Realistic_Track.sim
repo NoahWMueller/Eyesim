@@ -1,0 +1,8 @@
+# Environment
+world Worlds/Realistic_Track.wld
+
+# load custom robots
+robot Updated_Robots/S4blue.robi
+
+# robotname x y phi
+S4blue 300 300 0

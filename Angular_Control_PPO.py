@@ -1,18 +1,11 @@
 #!/usr/bin/env python
 
-# TO-DO --------------------------------------------------------------------------------------------------------------
-"""
-
-"""
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
-import time
 from eye import *
 import gymnasium as gym
-from random import randint
 from Helper_Functions import *
 from stable_baselines3 import PPO
-from stable_baselines3.common.env_checker import check_env
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
@@ -23,9 +16,14 @@ CAMHEIGHT = QVGA_Y
 
 LCD_Right_Print = 52
 
+# Whether to use binary or RGB image processing
+binary = True 
+
 # Directory paths for saving models and logs
-models_dir = f"models/Binary_Angular"
-logdir = f"logs/Binary_Angular"
+if binary: models_dir = f"models/Binary_Angular"
+else: models_dir = f"models/Angular"
+if binary: logdir = f"logs/Binary_Angular"
+else: logdir = f"logs/Angular"
 
 # Check if the models directory exists, if not create it
 if not os.path.exists(models_dir):
@@ -42,8 +40,9 @@ policy_network = "CnnPolicy" # Policy network used for training
 # Training parameters
 learning_rate=0.0003
 n_steps=2048
+
 # Camera processing parameters
-threshold = 60
+threshold = 110
 DESIRED_CAMHEIGHT = CAMHEIGHT // 2
 
 # INITIALISING TRACK ---------------------------------------------------------------------------------------------------
@@ -97,7 +96,8 @@ class EyeSimEnv(gym.Env):
         self.action_space = gym.spaces.Box(low=low, high=high, dtype=np.float32) 
 
         # Image observation space
-        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(1,DESIRED_CAMHEIGHT,CAMWIDTH), dtype=np.uint8) 
+        if binary: self.observation_space = gym.spaces.Box(low=0, high=255, shape=(1,DESIRED_CAMHEIGHT,CAMWIDTH), dtype=np.uint8) 
+        else: self.observation_space = gym.spaces.Box(low=0, high=255, shape=(CAMHEIGHT,CAMWIDTH,3), dtype=np.uint8)
         
         # Initialize variables
         self.current_centroid = 0
@@ -126,7 +126,8 @@ class EyeSimEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
         self.eyesim_reset()
-        observation = self.eyesim_get_observation()
+        if binary: observation = self.eyesim_get_observation_binary()
+        else: observation = self.eyesim_get_observation()
         info = {}
         return observation, info
 
@@ -141,7 +142,8 @@ class EyeSimEnv(gym.Env):
         self.eyesim_set_robot_speed(angular_action) 
 
         # Read image from camera
-        observation = self.eyesim_get_observation()
+        if binary: observation = self.eyesim_get_observation_binary()
+        else: observation = self.eyesim_get_observation()
 
         # Calculate reward based on position
         position_reward = self.calculate_drive_reward(current_position, next_position) # Calculate the drive reward based on the position
@@ -237,11 +239,11 @@ class EyeSimEnv(gym.Env):
     # Function to set the speed of the robot based on the action taken
     def eyesim_set_robot_speed(self, angular_action): 
         # Set the speed of the robot based on the action taken
-        angular_speed = 200
+        angular_speed = 100
         VWSetSpeed(200,round(angular_speed*angular_action)) # Set the speed of the robot
 
     # Function to get the image from the camera and process it
-    def eyesim_get_observation(self): 
+    def eyesim_get_observation_binary(self): 
         # Get image from camera
         image = CAMGetGray()
 
@@ -259,6 +261,18 @@ class EyeSimEnv(gym.Env):
  
         # Convert the cropped image to a ctypes pointer for LCD display
         LCDImageGray(cropped_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
+        
+        return processed_image
+
+    def eyesim_get_observation(self): 
+        # Get image from camera
+        image = CAMGet()
+
+        # Convert the image to a numpy array and reshape to observation space
+        processed_image = np.asarray(image, dtype=np.uint8).reshape((3, CAMHEIGHT, CAMWIDTH))
+
+        # Convert the cropped image to a ctypes pointer for LCD display
+        LCDImageGray(processed_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
         
         return processed_image
 
@@ -347,6 +361,41 @@ env = gym.make(env_id)
 
 # TEST ----------------------------------------------------------------------------------------------------------------
 
+# Function to get the image from the camera and process it
+def get_observation_binary(): 
+    # Get image from camera
+    image = CAMGetGray()
+
+    # Convert the image to a numpy array and reshape to observation space
+    processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH))
+
+    # Apply thresholding to convert to a binary 
+    binary_image = np.where(processed_image > threshold, 255, 0).astype(np.uint8)
+
+    # Crop the image to the desired height
+    cropped_image = binary_image[DESIRED_CAMHEIGHT:, :]  
+
+    # Add a channel dimension for compatibility with Gym
+    processed_image = cropped_image[np.newaxis, :, :]
+
+    # Convert the cropped image to a ctypes pointer for LCD display
+    LCDImageGray(binary_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
+    
+    return processed_image
+
+def get_observation(): 
+    # Get image from camera
+    image = CAMGet()
+
+    # Convert the image to a numpy array and reshape to observation space
+    processed_image = np.asarray(image, dtype=np.uint8).reshape((3, CAMHEIGHT, CAMWIDTH))
+
+    # Convert the cropped image to a ctypes pointer for LCD display
+    LCDImage(processed_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
+    
+    return processed_image
+
+
 # Function to test the environment and the robot's performance
 def test(): 
     env.reset()
@@ -424,31 +473,19 @@ def load_test(model):
 
     LCDSetPrintf(3,LCD_Right_Print,f"Loaded model:      ")
     LCDSetPrintf(4,LCD_Right_Print,f"{model[:-4]}     ")
-
     # Continue testing the loaded model until the user decides to stop
     while True:
         LCDMenu("-", "-", "-", "Stop")
         key = KEYRead()
 
-        # Get image from camera
-        image = CAMGetGray()
-
-        # Convert the image to a numpy array and reshape to observation space
-        processed_image = np.asarray(image, dtype=np.uint8).reshape((1, CAMHEIGHT, CAMWIDTH))
-
-        # Apply thresholding to convert to a binary 
-        binary_image = np.where(processed_image > threshold, 255, 0).astype(np.uint8)
-
-        # Crop the image to the desired height
-        cropped_image = binary_image[:,DESIRED_CAMHEIGHT:, :]        
-
-        # Convert the cropped image to a ctypes pointer for LCD display
-        LCDImageGray(cropped_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
+        # Get the current observation from the environment
+        if binary: observation = get_observation_binary()
+        else: observation = get_observation()
 
         # Predict the action using the loaded model and given observation
-        action, _ = loaded_model.predict(cropped_image, deterministic=True)
+        action, _ = loaded_model.predict(observation, deterministic=True)
         LCDSetPrintf(5,LCD_Right_Print,f"Prediction: {round(float(action),2)}       ")
-        angular_speed = 200
+        angular_speed = 100
         VWSetSpeed(200,round(angular_speed*float(action))) # Set the speed of the robot
         
         # End testing if user presses the stop key
@@ -506,9 +543,10 @@ def load_train(model, iteration):
 def main():
     # Initialize the camera
     CAMInit(CAM_SETTING) 
-    LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
+    global binary
+    if binary: LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
+    else: LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
     LCDSetPrintf(0,LCD_Right_Print,"Angular Control")
-
     while True:
         LCDMenu("Train", "Test", "Load", "Quit")
         key = KEYRead()
@@ -520,33 +558,41 @@ def main():
         # Testing Menu
         elif key == KEY2: 
             while True:
-                LCDMenu("Env", "check_env", "Track", "Back")
+                LCDMenu("Env", "Images", "Toggle Binary", "Back")
                 key = KEYRead()
 
                 if key == KEY1: # Test the environment with random actions
                     test()
                 elif key == KEY2: # Check the environment for any issues
-                    check_env(env, warn=True)
+                    LCDClear()
+                    if binary: 
+                        LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
+                        get_observation_binary()
+                        
+                    else:
+                        LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT) 
+                        get_observation()
                 
                 elif key == KEY3:
-                    track = 1
-                    while(True):
-                        LCDMenu("Up", "Down", "Test", "Back")
-                        key = KEYRead()
-                        if key == KEY1:
-                            if track < total_tracks: track +=1
-                            LCDSetPrintf(2,LCD_Right_Print,f"Selecting Track {track}")
-                        elif key == KEY2:
-                            if track > 1: track -=1
-                            LCDSetPrintf(2,LCD_Right_Print,f"Selecting Track {track}")
-                        elif key == KEY3:
-                            set_track(track)
-                            for (x,y,phi) in left_centroids:
-                                SIMSetRobot(1,x,y,10,phi+180)
-                                time.sleep(0.1)
-                        elif key == KEY4:
-                            LCDClear()
-                            break
+                    binary = not binary
+                    # track = 1
+                    # while(True):
+                    #     LCDMenu("Up", "Down", "Test", "Back")
+                    #     key = KEYRead()
+                    #     if key == KEY1:
+                    #         if track < total_tracks: track +=1
+                    #         LCDSetPrintf(2,LCD_Right_Print,f"Selecting Track {track}")
+                    #     elif key == KEY2:
+                    #         if track > 1: track -=1
+                    #         LCDSetPrintf(2,LCD_Right_Print,f"Selecting Track {track}")
+                    #     elif key == KEY3:
+                    #         set_track(track)
+                    #         for (x,y,phi) in left_centroids:
+                    #             SIMSetRobot(1,x,y,10,phi+180)
+                    #             time.sleep(0.1)
+                    #     elif key == KEY4:
+                    #         LCDClear()
+                    #         break
 
                 elif key == KEY4: # Back to the main menu
                     break 

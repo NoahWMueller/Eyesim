@@ -1,0 +1,11 @@
+# World file
+
+# Floor texture and size (x y)
+floor_texture Tracks/Realistic_Track.png
+floor 3000 6000
+
+# Walls for track_1 (x1 y1 x2 y2)
+0 0 3000 0
+0 0 0 6000
+0 6000 3000 6000
+3000 0 3000 6000

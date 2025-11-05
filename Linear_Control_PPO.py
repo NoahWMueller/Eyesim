@@ -1,15 +1,5 @@
 #!/usr/bin/env python
 
-# TO-DO --------------------------------------------------------------------------------------------------------------
-
-"""
-## look into this ##
-Eval callback saves best model based on mean reward 
-eval_callback = EvalCallback(eval_env, best_model_save_path=models_dir,
-                             log_path=logdir, eval_freq=50_000, n_eval_episodes=5, deterministic=True)
-
-"""
-
 # IMPORTS ------------------------------------------------------------------------------------------------------------
 
 import time
@@ -51,8 +41,6 @@ policy_network = "MultiInputPolicy" # Policy network used for training
 # Training parameters
 learning_rate = 0.0003
 n_steps = 2048
-batch_size = 256 
-ent_coef = 0.05
 
 # Starting positions for the robot on the tracks
 # [track 1, track 2, track 3]
@@ -251,7 +239,7 @@ class EyeSimEnv(gym.Env):
 
                 if linear_speed == 0:
                     LCDSetPrintf(5, LCD_Right_Print, "Stop Completed        ")
-                    score += 5.0
+                    score += 2.0
                     self.completed_stop = True
                     self.stop_position = position
                     # sleep for two seconds to immitate full stop
@@ -475,7 +463,7 @@ def train():
 
     # Define the PPO model with the specified parameters
     model = PPO(policy_network, env=env, verbose=1, tensorboard_log=logdir, n_steps=n_steps, policy_kwargs=policy_kwargs,
-                learning_rate=learning_rate, batch_size=batch_size, ent_coef=ent_coef)
+                learning_rate=learning_rate)
     
     # stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=3, min_evals=5, verbose=1)
     # eval_callback = EvalCallback(env, eval_freq=n_steps*20, callback_after_eval=stop_train_callback, verbose=1)
