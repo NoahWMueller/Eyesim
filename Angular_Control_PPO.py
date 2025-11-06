@@ -6,6 +6,7 @@ from eye import *
 import gymnasium as gym
 from Helper_Functions import *
 from stable_baselines3 import PPO
+from stable_baselines3.common.env_checker import check_env
 
 # GLOBAL VARIABLES ---------------------------------------------------------------------------------------------------
 
@@ -17,7 +18,7 @@ CAMHEIGHT = QVGA_Y
 LCD_Right_Print = 52
 
 # Whether to use binary or RGB image processing
-binary = True 
+binary = False 
 
 # Directory paths for saving models and logs
 if binary: models_dir = f"models/Binary_Angular"
@@ -267,12 +268,9 @@ class EyeSimEnv(gym.Env):
     def eyesim_get_observation(self): 
         # Get image from camera
         image = CAMGet()
-
+        LCDImage(image)
         # Convert the image to a numpy array and reshape to observation space
-        processed_image = np.asarray(image, dtype=np.uint8).reshape((3, CAMHEIGHT, CAMWIDTH))
-
-        # Convert the cropped image to a ctypes pointer for LCD display
-        LCDImageGray(processed_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
+        processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH,3))
         
         return processed_image
 
@@ -386,13 +384,11 @@ def get_observation_binary():
 def get_observation(): 
     # Get image from camera
     image = CAMGet()
+    LCDImage(image)
 
     # Convert the image to a numpy array and reshape to observation space
-    processed_image = np.asarray(image, dtype=np.uint8).reshape((3, CAMHEIGHT, CAMWIDTH))
+    processed_image = np.asarray(image, dtype=np.uint8).reshape((CAMHEIGHT, CAMWIDTH,3))
 
-    # Convert the cropped image to a ctypes pointer for LCD display
-    LCDImage(processed_image.ctypes.data_as(ctypes.POINTER(ctypes.c_byte)))
-    
     return processed_image
 
 
@@ -478,14 +474,15 @@ def load_test(model):
         LCDMenu("-", "-", "-", "Stop")
         key = KEYRead()
 
+        print(binary)
         # Get the current observation from the environment
         if binary: observation = get_observation_binary()
         else: observation = get_observation()
 
         # Predict the action using the loaded model and given observation
-        action, _ = loaded_model.predict(observation, deterministic=True)
+        action, _ = loaded_model.predict(observation)
         LCDSetPrintf(5,LCD_Right_Print,f"Prediction: {round(float(action),2)}       ")
-        angular_speed = 100
+        angular_speed = 50
         VWSetSpeed(200,round(angular_speed*float(action))) # Set the speed of the robot
         
         # End testing if user presses the stop key
@@ -544,7 +541,7 @@ def main():
     # Initialize the camera
     CAMInit(CAM_SETTING) 
     global binary
-    if binary: LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
+    if binary: LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
     else: LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
     LCDSetPrintf(0,LCD_Right_Print,"Angular Control")
     while True:
@@ -553,7 +550,8 @@ def main():
 
         # Train the model
         if key == KEY1: 
-            train()
+            
+            check_env(env)
 
         # Testing Menu
         elif key == KEY2: 
@@ -566,7 +564,7 @@ def main():
                 elif key == KEY2: # Check the environment for any issues
                     LCDClear()
                     if binary: 
-                        LCDImageStart(0,0,CAMWIDTH,CAMHEIGHT)
+                        LCDImageStart(0,0,CAMWIDTH,DESIRED_CAMHEIGHT)
                         get_observation_binary()
                         
                     else:
