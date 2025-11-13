@@ -3,3 +3,8 @@ models/
 logs/
 eyesim_env/
 *.Zone.Identifier
+.vscode/
+images-videos/
+Red_Object_Tracking/
+cam_test.py
+__pycache__/
