@@ -41,11 +41,7 @@ In the context of EyeSim, PPO is used to train the Eyebot to navigate using visi
 ## Repository Structure
 
 ├── Map_points/                # text files with EyeSim coordinates for current tracks  
-├── Red_Object_Tracking/       # PPO training scripts for red object tracking  
 ├── sims/                      # EyeSim world files and simulator setups
-├── images-videos/             # Output media and visualisations  
-├── logs/                      # TensorBoard logs and metrics  
-├── models/                    # Saved trained models  
 ├── Angular_Control_PPO.py     # Angular controller script  
 ├── helper_functions.py        # Shared utility functions  
 ├── Image_Point_Processing.py  # Processes given points into EyeSim coordinates   
@@ -79,12 +75,11 @@ pip install gymnasium stable-baselines3 opencv-python numpy
 
 ### Main Programs
 
-To train the robot for any of the 3 independent tasks you must launch EyeSim, load the correct *.sim file found in the sims folder and run respective python file.
+To train the robot for any of the 2 independent tasks you must launch EyeSim, load the correct *.sim file found in the sims folder and run respective python file.
 
 ```bash
 python3 Angular_Control_PPO.py
 python3 Linear_Control_PPO.py
-python3 Red_Object_Tracking/red_object_finder_PPO.py
 ```
 
 After loading the dependencies it will produce a popup display with 4 buttons located at the bottom, these provide various different commands and controls for training, loading, and testing the model and its behaviour.
